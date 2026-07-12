@@ -35,3 +35,7 @@ captures/
 
 # Node / JS (if any)
 node_modules/
+
+# App generated backup files
+frp-kmp-backup.json
+*.backup.json
