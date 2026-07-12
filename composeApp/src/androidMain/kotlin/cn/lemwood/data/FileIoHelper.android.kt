@@ -10,3 +10,11 @@ internal actual fun readTextFromFile(path: String): String? {
     val file = File(path)
     return if (file.exists()) file.readText(Charsets.UTF_8) else null
 }
+
+actual fun showFileSaveDialog(title: String, initialPath: String): String? {
+    return null
+}
+
+actual fun showFileOpenDialog(title: String): String? {
+    return null
+}

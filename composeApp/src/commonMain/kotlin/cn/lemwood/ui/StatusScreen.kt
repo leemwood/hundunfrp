@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import cn.lemwood.components.StatusBadge
+import cn.lemwood.components.TrafficChart
+import cn.lemwood.components.generateMockTrafficData
 import cn.lemwood.model.AppState
 import cn.lemwood.model.TunnelStatus
 import cn.lemwood.state.AppStateHolder
@@ -176,9 +178,12 @@ private fun TrafficSummaryCard(
                 TrafficMetric(label = "峰值", value = "${formatBytes(peakBytesPerSecond)}/s")
             }
             Text(
-                text = "折线图占位 (5min/1h/今日/本周)",
-                style = MaterialTheme.typography.bodySmall,
+                text = "流量趋势",
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TrafficChart(
+                dataPoints = generateMockTrafficData(12),
             )
         }
     }

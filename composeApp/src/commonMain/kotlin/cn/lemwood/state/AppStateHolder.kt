@@ -148,6 +148,11 @@ object AppStateHolder {
         }
     }
 
+    fun persistSettingsForNow() {
+        persistSettings()
+        persistTunnels()
+    }
+
     fun setUiState(uiState: UIState) {
         state.update { it.copy(uiState = uiState) }
     }

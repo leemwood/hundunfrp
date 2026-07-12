@@ -1,5 +1,9 @@
 package cn.lemwood
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -15,6 +19,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,15 +29,37 @@ import androidx.compose.ui.Modifier
 import cn.lemwood.navigation.NavigationType
 import cn.lemwood.navigation.Screen
 import cn.lemwood.navigation.toNavigationType
+import cn.lemwood.model.AppSettings
+import cn.lemwood.platform.FrpController
+import cn.lemwood.state.AppStateHolder
 import cn.lemwood.theme.AppDimen
+import kotlinx.coroutines.flow.map
 import cn.lemwood.ui.AddTunnelFab
+import cn.lemwood.ui.ErrorScreen
 import cn.lemwood.ui.LogScreen
+import cn.lemwood.ui.OnboardingScreen
 import cn.lemwood.ui.SettingsScreen
 import cn.lemwood.ui.StatusScreen
 import cn.lemwood.ui.TunnelListScreen
+import cn.lemwood.ui.TunnelEditorScreen
+import cn.lemwood.ui.CrashHandler
 
 @Composable
 fun App() {
+    val crashError = CrashHandler.lastError
+
+    if (crashError != null) {
+        ErrorScreen(
+            error = crashError,
+            onRestart = { CrashHandler.clear() },
+            onResetData = {
+                AppStateHolder.resetToDefaults()
+                CrashHandler.clear()
+            },
+        )
+        return
+    }
+
     AppScaffold()
 }
 
@@ -41,19 +69,58 @@ fun AppScaffold() {
         val navigationType = maxWidth.toNavigationType()
         var selectedScreen by remember { mutableStateOf(Screen.TunnelList) }
         val snackbarHostState = remember { SnackbarHostState() }
+        var editingTunnelId by remember { mutableStateOf<String?>(null) }
+        val isEditing = editingTunnelId != null
+        val frpController = remember { FrpController() }
+
+        val settings by AppStateHolder.state.map { it.settings }.collectAsState(AppSettings())
+        if (!settings.hasCompletedOnboarding) {
+            OnboardingScreen(
+                onComplete = {
+                    AppStateHolder.updateSettings(settings.copy(hasCompletedOnboarding = true))
+                },
+            )
+            return@BoxWithConstraints
+        }
+
+        LaunchedEffect(Unit) {
+            val settings = AppStateHolder.state.value.settings
+            if (settings.autoStart && settings.serverAddr.isNotBlank()) {
+                frpController.connect(
+                    host = settings.serverAddr,
+                    port = settings.serverPort,
+                    token = settings.serverToken,
+                )
+            }
+        }
+
+        if (isEditing) {
+            TunnelEditorScreen(
+                tunnelId = editingTunnelId,
+                onDismiss = { editingTunnelId = null },
+            )
+            return@BoxWithConstraints
+        }
 
         val content: @Composable () -> Unit = {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                when (selectedScreen) {
-                    Screen.TunnelList -> TunnelListScreen(modifier = Modifier.fillMaxSize())
-                    Screen.Status -> StatusScreen(modifier = Modifier.fillMaxSize())
-                    Screen.Settings -> SettingsScreen(
-                        modifier = Modifier.fillMaxSize(),
-                        snackbarHostState = snackbarHostState,
-                    )
-                    Screen.Log -> LogScreen(modifier = Modifier.fillMaxSize())
+            AnimatedContent(
+                targetState = selectedScreen,
+                transitionSpec = { fadeIn() togetherWith fadeOut() },
+            ) { screen ->
+                Box(modifier = Modifier.fillMaxSize()) {
+                    when (screen) {
+                        Screen.TunnelList -> TunnelListScreen(
+                            modifier = Modifier.fillMaxSize(),
+                            onAddTunnel = { editingTunnelId = null },
+                            onEditTunnel = { id -> editingTunnelId = id },
+                        )
+                        Screen.Status -> StatusScreen(modifier = Modifier.fillMaxSize())
+                        Screen.Settings -> SettingsScreen(
+                            modifier = Modifier.fillMaxSize(),
+                            snackbarHostState = snackbarHostState,
+                        )
+                        Screen.Log -> LogScreen(modifier = Modifier.fillMaxSize())
+                    }
                 }
             }
         }
@@ -75,7 +142,7 @@ fun AppScaffold() {
                     },
                     floatingActionButton = {
                         if (selectedScreen == Screen.TunnelList) {
-                            AddTunnelFab(snackbarHostState = snackbarHostState)
+                            AddTunnelFab(onClick = { editingTunnelId = null })
                         }
                     },
                     snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -103,7 +170,7 @@ fun AppScaffold() {
                         NavigationRail(
                             header = {
                                 AddTunnelFab(
-                                    snackbarHostState = snackbarHostState,
+                                    onClick = { editingTunnelId = null },
                                     modifier = Modifier.padding(top = AppDimen.ScreenPadding),
                                 )
                             },

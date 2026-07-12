@@ -20,7 +20,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,14 +34,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import cn.lemwood.components.ConfirmDialog
 import cn.lemwood.components.FilterChips
+import cn.lemwood.components.SectionHeader
+import cn.lemwood.components.SettingsRow
 import cn.lemwood.data.ExportImportManager
+import cn.lemwood.data.showFileOpenDialog
+import cn.lemwood.data.showFileSaveDialog
 import cn.lemwood.model.AppSettings
 import cn.lemwood.model.AppState
 import cn.lemwood.model.LogLevel
+import cn.lemwood.platform.FrpController
 import cn.lemwood.state.AppStateHolder
 import cn.lemwood.theme.AppDimen
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(
@@ -51,6 +57,8 @@ fun SettingsScreen(
 ) {
     val appState by AppStateHolder.state.map { it }.collectAsStateWithLifecycle(initial = AppState())
     val settings = appState.settings
+    val frpController = remember { FrpController() }
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = modifier
@@ -60,7 +68,12 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(AppDimen.ScreenPadding),
     ) {
         SettingsSection(title = "服务端连接") {
-            ServerConnectionSettings(settings = settings)
+            ServerConnectionSettings(
+                settings = settings,
+                frpController = frpController,
+                snackbarHostState = snackbarHostState,
+                scope = scope,
+            )
         }
 
         SettingsSection(title = "全局行为") {
@@ -88,12 +101,7 @@ private fun SettingsSection(
     content: @Composable () -> Unit,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = AppDimen.CardPadding),
-        )
+        SectionHeader(title = title)
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -106,7 +114,14 @@ private fun SettingsSection(
 }
 
 @Composable
-private fun ServerConnectionSettings(settings: AppSettings) {
+private fun ServerConnectionSettings(
+    settings: AppSettings,
+    frpController: FrpController,
+    snackbarHostState: SnackbarHostState,
+    scope: kotlinx.coroutines.CoroutineScope,
+) {
+    var isTesting by remember { mutableStateOf(false) }
+
     OutlinedTextField(
         value = settings.serverAddr,
         onValueChange = { AppStateHolder.updateSettings(settings.copy(serverAddr = it)) },
@@ -139,27 +154,48 @@ private fun ServerConnectionSettings(settings: AppSettings) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.End,
     ) {
-        Button(onClick = { /* 测试连接占位 */ }) {
-            Text("测试连接")
+        Button(
+            onClick = {
+                if (isTesting || settings.serverAddr.isBlank()) return@Button
+                isTesting = true
+                scope.launch {
+                    val error = withContext(Dispatchers.IO) {
+                        frpController.testConnection(
+                            host = settings.serverAddr,
+                            port = settings.serverPort,
+                            timeoutSeconds = settings.timeoutSeconds.coerceAtLeast(5),
+                        )
+                    }
+                    isTesting = false
+                    if (error == null) {
+                        snackbarHostState.showSnackbar("连接成功 — ${settings.serverAddr}:${settings.serverPort}")
+                    } else {
+                        snackbarHostState.showSnackbar("连接失败: $error")
+                    }
+                }
+            },
+            enabled = !isTesting && settings.serverAddr.isNotBlank(),
+        ) {
+            Text(if (isTesting) "测试中..." else "测试连接")
         }
     }
 }
 
 @Composable
 private fun GlobalBehaviorSettings(settings: AppSettings) {
-    ToggleRow(
+    SettingsRow(
         label = "开机自启",
         checked = settings.autoStart,
         onCheckedChange = { AppStateHolder.updateSettings(settings.copy(autoStart = it)) },
     )
     HorizontalDivider(modifier = Modifier.padding(vertical = AppDimen.CardPadding / 2))
-    ToggleRow(
+    SettingsRow(
         label = "自动重连",
         checked = settings.autoReconnect,
         onCheckedChange = { AppStateHolder.updateSettings(settings.copy(autoReconnect = it)) },
     )
     HorizontalDivider(modifier = Modifier.padding(vertical = AppDimen.CardPadding / 2))
-    ToggleRow(
+    SettingsRow(
         label = "通知",
         checked = settings.notifications,
         onCheckedChange = { AppStateHolder.updateSettings(settings.copy(notifications = it)) },
@@ -218,7 +254,7 @@ private fun AppearanceSettings(settings: AppSettings) {
         },
     )
     Spacer(modifier = Modifier.height(AppDimen.CardPadding))
-    ToggleRow(
+    SettingsRow(
         label = "动态取色",
         checked = settings.dynamicColor,
         onCheckedChange = { AppStateHolder.updateSettings(settings.copy(dynamicColor = it)) },
@@ -231,7 +267,8 @@ private fun DataManagementSettings(
 ) {
     val scope = rememberCoroutineScope()
     val exportImport = remember { ExportImportManager(AppStateHolder) }
-    var exportPath by remember { mutableStateOf("D:\\.config\\frp-kmp\\frp-kmp-backup.json") }
+    val defaultPath = "D:\\.config\\frp-kmp\\frp-kmp-backup.json"
+    var exportPath by remember { mutableStateOf(defaultPath) }
     var showClearDialog by remember { mutableStateOf(false) }
 
     fun showMessage(message: String) {
@@ -241,7 +278,7 @@ private fun DataManagementSettings(
     OutlinedTextField(
         value = exportPath,
         onValueChange = { exportPath = it },
-        label = { Text("备份文件路径") },
+        label = { Text("文件路径") },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
     )
@@ -252,13 +289,17 @@ private fun DataManagementSettings(
     ) {
         TextButton(
             onClick = {
-                val result = runCatching {
-                    exportImport.exportToFile(exportPath)
-                }
-                if (result.isSuccess) {
-                    showMessage("导出成功: $exportPath")
-                } else {
-                    showMessage("导出失败: ${result.exceptionOrNull()?.message}")
+                scope.launch {
+                    val path = withContext(Dispatchers.IO) {
+                        showFileSaveDialog("导出配置", exportPath)
+                    } ?: return@launch
+                    exportPath = path
+                    val result = runCatching { exportImport.exportToFile(path) }
+                    if (result.isSuccess) {
+                        showMessage("导出成功: $path")
+                    } else {
+                        showMessage("导出失败: ${result.exceptionOrNull()?.message}")
+                    }
                 }
             },
             modifier = Modifier.weight(1f),
@@ -267,11 +308,17 @@ private fun DataManagementSettings(
         }
         TextButton(
             onClick = {
-                val ok = exportImport.importFromFile(exportPath)
-                if (ok) {
-                    showMessage("导入成功: $exportPath")
-                } else {
-                    showMessage("导入失败，请检查文件内容或路径")
+                scope.launch {
+                    val path = withContext(Dispatchers.IO) {
+                        showFileOpenDialog("导入配置")
+                    } ?: return@launch
+                    exportPath = path
+                    val ok = exportImport.importFromFile(path)
+                    if (ok) {
+                        showMessage("导入成功: $path")
+                    } else {
+                        showMessage("导入失败，请检查文件内容或路径")
+                    }
                 }
             },
             modifier = Modifier.weight(1f),
@@ -331,27 +378,6 @@ private fun AboutSection() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-@Composable
-private fun ToggleRow(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

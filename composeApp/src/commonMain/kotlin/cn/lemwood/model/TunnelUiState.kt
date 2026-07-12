@@ -13,5 +13,11 @@ data class TunnelUiState(
     val status: TunnelStatus = TunnelStatus.OFFLINE,
     val enabled: Boolean = false,
     val traffic: Traffic = Traffic(),
-    val lastError: String? = null
+    val lastError: String? = null,
+    val encryption: Boolean = false,
+    val compression: Boolean = false,
+    val tls: Boolean = false,
+    val customDomain: String? = null,
+    val httpUser: String? = null,
+    val httpPassword: String? = null
 )

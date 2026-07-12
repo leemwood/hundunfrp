@@ -13,5 +13,6 @@ data class AppSettings(
     val timeoutSeconds: Int = 30,
     val logLevel: LogLevel = LogLevel.INFO,
     val theme: String = "system",
-    val dynamicColor: Boolean = false
+    val dynamicColor: Boolean = false,
+    val hasCompletedOnboarding: Boolean = false
 )

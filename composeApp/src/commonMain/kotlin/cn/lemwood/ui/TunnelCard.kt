@@ -45,6 +45,7 @@ fun TunnelCard(
     selected: Boolean = false,
     onSelectionChange: (Boolean) -> Unit = {},
     onLongClick: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val statusColor = statusColor(tunnel.status)
@@ -64,7 +65,7 @@ fun TunnelCard(
                     if (selectionMode) {
                         onSelectionChange(!selected)
                     } else {
-                        AppStateHolder.toggleTunnel(tunnel.id)
+                        onEdit?.invoke()
                     }
                 },
                 onLongClick = onLongClick,

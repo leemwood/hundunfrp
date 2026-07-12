@@ -1,5 +1,7 @@
 package cn.lemwood.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,15 +16,24 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -32,8 +43,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import cn.lemwood.components.ConfirmDialog
 import cn.lemwood.components.EmptyState
 import cn.lemwood.components.FilterChips
 import cn.lemwood.components.SearchBar
@@ -43,6 +56,7 @@ import cn.lemwood.model.TunnelStatus
 import cn.lemwood.model.TunnelUiState
 import cn.lemwood.state.AppStateHolder
 import cn.lemwood.theme.AppDimen
+import cn.lemwood.theme.ErrorColor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -73,16 +87,11 @@ fun TunnelListTopBar(connected: Boolean) {
 
 @Composable
 fun AddTunnelFab(
-    snackbarHostState: SnackbarHostState,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val scope = rememberCoroutineScope()
     FloatingActionButton(
-        onClick = {
-            scope.launch {
-                snackbarHostState.showSnackbar("新增隧道功能占位")
-            }
-        },
+        onClick = onClick,
         modifier = modifier,
     ) {
         Icon(Icons.Default.Add, contentDescription = "新增隧道")
@@ -93,6 +102,8 @@ fun AddTunnelFab(
 @Composable
 fun TunnelListScreen(
     modifier: Modifier = Modifier,
+    onAddTunnel: (() -> Unit)? = null,
+    onEditTunnel: ((String) -> Unit)? = null,
 ) {
     val appState by AppStateHolder.state.map { it }.collectAsStateWithLifecycle(initial = AppState())
     val tunnels = appState.tunnels
@@ -103,6 +114,9 @@ fun TunnelListScreen(
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var deleteConfirmId by remember { mutableStateOf<String?>(null) }
+    var batchDeleteConfirm by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     val filteredTunnels = remember(tunnels, query, selectedStatus, selectedType) {
@@ -153,109 +167,259 @@ fun TunnelListScreen(
         }
     }
 
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = {
-            isRefreshing = true
-            scope.launch {
-                delay(800)
-                isRefreshing = false
-            }
-        },
-        modifier = modifier.fillMaxSize(),
-    ) {
-        if (tunnels.isEmpty()) {
-            EmptyState(
-                icon = Icons.AutoMirrored.Filled.List,
-                title = "还没有隧道",
-                subtitle = "点击右下角 + 按钮添加第一条隧道",
-                modifier = Modifier.fillMaxSize(),
-            )
-            return@PullToRefreshBox
-        }
-
-        Column(modifier = Modifier.fillMaxSize()) {
-            TunnelListTopBar(connected = appState.serverStatus.connected)
-
-            SearchBar(
-                query = query,
-                onQueryChange = { query = it },
-                placeholder = "搜索名称/端口...",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = AppDimen.ScreenPadding),
-            )
-
-            Spacer(modifier = Modifier.height(AppDimen.CardPadding))
-
-            FilterChips(
-                options = statusOptions,
-                selected = selectedStatus,
-                onSelect = onStatusSelect,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            FilterChips(
-                options = typeOptions,
-                selected = selectedType,
-                onSelect = onTypeSelect,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Spacer(modifier = Modifier.height(AppDimen.CardPadding))
-
-            if (filteredTunnels.isEmpty()) {
+    Box(modifier = modifier.fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                scope.launch {
+                    delay(800)
+                    isRefreshing = false
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            if (tunnels.isEmpty()) {
                 EmptyState(
-                    icon = Icons.Default.Search,
-                    title = "没有匹配结果",
-                    subtitle = "尝试清除搜索或过滤条件",
+                    icon = Icons.AutoMirrored.Filled.List,
+                    title = "还没有隧道",
+                    subtitle = "点击右下角 + 按钮添加第一条隧道",
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(AppDimen.CardPadding),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        start = AppDimen.ScreenPadding,
-                        end = AppDimen.ScreenPadding,
-                        bottom = AppDimen.ScreenPadding,
-                    ),
-                ) {
-                    items(
-                        items = filteredTunnels,
-                        key = { it.id },
-                    ) { tunnel ->
-                        TunnelCard(
-                            tunnel = tunnel,
-                            selectionMode = selectionMode,
-                            selected = tunnel.id in selectedIds,
-                            onSelectionChange = { checked ->
-                                selectedIds = if (checked) {
-                                    selectedIds + tunnel.id
-                                } else {
-                                    selectedIds - tunnel.id
-                                }
-                                if (selectedIds.isEmpty()) {
-                                    selectionMode = false
-                                }
+                Column(modifier = Modifier.fillMaxSize()) {
+                    if (selectionMode) {
+                        SelectionTopBar(
+                            selectedCount = selectedIds.size,
+                            onDismiss = {
+                                selectionMode = false
+                                selectedIds = emptySet()
                             },
-                            onLongClick = {
-                                selectionMode = true
-                                selectedIds = selectedIds + tunnel.id
+                            onSelectAll = {
+                                selectedIds = filteredTunnels.map { it.id }.toSet()
                             },
-                            modifier = Modifier.fillMaxWidth(),
+                            onBatchToggle = {
+                                filteredTunnels.forEach { t ->
+                                    if (t.id in selectedIds) {
+                                        AppStateHolder.toggleTunnel(t.id)
+                                    }
+                                }
+                                selectionMode = false
+                                selectedIds = emptySet()
+                            },
+                            onBatchDelete = {
+                                batchDeleteConfirm = true
+                            },
                         )
+                    } else {
+                        TunnelListTopBar(connected = appState.serverStatus.connected)
+                    }
+
+                    SearchBar(
+                        query = query,
+                        onQueryChange = { query = it },
+                        placeholder = "搜索名称/端口...",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = AppDimen.ScreenPadding),
+                    )
+
+                    Spacer(modifier = Modifier.height(AppDimen.CardPadding))
+
+                    FilterChips(
+                        options = statusOptions,
+                        selected = selectedStatus,
+                        onSelect = onStatusSelect,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    FilterChips(
+                        options = typeOptions,
+                        selected = selectedType,
+                        onSelect = onTypeSelect,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    Spacer(modifier = Modifier.height(AppDimen.CardPadding))
+
+                    if (filteredTunnels.isEmpty()) {
+                        EmptyState(
+                            icon = Icons.Default.Search,
+                            title = "没有匹配结果",
+                            subtitle = "尝试清除搜索或过滤条件",
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(AppDimen.CardPadding),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                start = AppDimen.ScreenPadding,
+                                end = AppDimen.ScreenPadding,
+                                bottom = AppDimen.ScreenPadding,
+                            ),
+                        ) {
+                            items(
+                                items = filteredTunnels,
+                                key = { it.id },
+                            ) { tunnel ->
+                                val dismissState = rememberSwipeToDismissBoxState(
+                                    confirmValueChange = { value ->
+                                        if (value == SwipeToDismissBoxValue.EndToStart) {
+                                            deleteConfirmId = tunnel.id
+                                            false
+                                        } else {
+                                            false
+                                        }
+                                    },
+                                )
+                                SwipeToDismissBox(
+                                    state = dismissState,
+                                    backgroundContent = {
+                                        val color by animateColorAsState(
+                                            targetValue = when (dismissState.targetValue) {
+                                                SwipeToDismissBoxValue.EndToStart -> ErrorColor
+                                                else -> Color.Transparent
+                                            },
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(color),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "删除",
+                                                tint = Color.White,
+                                                modifier = Modifier
+                                                    .align(Alignment.CenterEnd)
+                                                    .padding(end = AppDimen.ScreenPadding),
+                                            )
+                                        }
+                                    },
+                                    enableDismissFromStartToEnd = false,
+                                    enableDismissFromEndToStart = true,
+                                ) {
+                                    TunnelCard(
+                                        tunnel = tunnel,
+                                        selectionMode = selectionMode,
+                                        selected = tunnel.id in selectedIds,
+                                        onSelectionChange = { checked ->
+                                            selectedIds = if (checked) {
+                                                selectedIds + tunnel.id
+                                            } else {
+                                                selectedIds - tunnel.id
+                                            }
+                                            if (selectedIds.isEmpty()) {
+                                                selectionMode = false
+                                            }
+                                        },
+                                        onLongClick = {
+                                            selectionMode = true
+                                            selectedIds = selectedIds + tunnel.id
+                                        },
+                                        onEdit = { onEditTunnel?.invoke(tunnel.id) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-    }
- }
 
-// Helper to collect state with lifecycle semantics in commonMain.
-// On Desktop this is effectively a simple collectAsState.
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+
+    if (deleteConfirmId != null) {
+        val tunnelName = tunnels.find { it.id == deleteConfirmId }?.name ?: ""
+        ConfirmDialog(
+            title = "删除隧道",
+            text = "确定删除 \"$tunnelName\"？此操作不可撤销。",
+            confirmText = "删除",
+            dismissText = "取消",
+            onConfirm = {
+                val id = deleteConfirmId ?: return@ConfirmDialog
+                val deleted = tunnels.find { it.id == id }
+                AppStateHolder.deleteTunnel(id)
+                deleteConfirmId = null
+                if (deleted != null) {
+                    scope.launch {
+                        val result = snackbarHostState.showSnackbar(
+                            message = "\"${deleted.name}\" 已删除",
+                            actionLabel = "撤销",
+                        )
+                        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                            AppStateHolder.addTunnel(deleted)
+                        }
+                    }
+                }
+            },
+            onDismiss = { deleteConfirmId = null },
+        )
+    }
+
+    if (batchDeleteConfirm) {
+        val selectedNames = tunnels.filter { it.id in selectedIds }.map { it.name }
+        ConfirmDialog(
+            title = "批量删除",
+            text = "确定删除 ${selectedIds.size} 条隧道？\n${selectedNames.joinToString(", ")}\n此操作不可撤销。",
+            confirmText = "删除",
+            dismissText = "取消",
+            onConfirm = {
+                selectedIds.forEach { id -> AppStateHolder.deleteTunnel(id) }
+                batchDeleteConfirm = false
+                selectionMode = false
+                selectedIds = emptySet()
+                scope.launch {
+                    snackbarHostState.showSnackbar("${selectedIds.size} 条隧道已删除")
+                }
+            },
+            onDismiss = { batchDeleteConfirm = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectionTopBar(
+    selectedCount: Int,
+    onDismiss: () -> Unit,
+    onSelectAll: () -> Unit,
+    onBatchToggle: () -> Unit,
+    onBatchDelete: () -> Unit,
+) {
+    TopAppBar(
+        title = { Text("已选择 $selectedCount 项") },
+        navigationIcon = {
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = "取消选择")
+            }
+        },
+        actions = {
+            IconButton(onClick = onSelectAll) {
+                Icon(Icons.Default.SelectAll, contentDescription = "全选")
+            }
+            IconButton(onClick = onBatchToggle) {
+                Icon(Icons.Default.DoneAll, contentDescription = "批量开关")
+            }
+            IconButton(onClick = onBatchDelete) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "批量删除",
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+    )
+}
+
 @Composable
 private fun <T> kotlinx.coroutines.flow.Flow<T>.collectAsStateWithLifecycle(
     initial: T,
