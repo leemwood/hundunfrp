@@ -1,0 +1,27 @@
+# Checklist
+
+- [x] 项目使用 `cn.lemwood` 作为所有 source set 的根包名
+- [x] 主题提供亮/暗两套 ColorScheme，色值对齐设计文档第 10 章
+- [x] Typography 包含 headlineLarge/Medium、titleLarge/Medium、bodyMedium/Small、labelSmall
+- [x] Shapes 包含 cardRadius=12dp、chipRadius=4dp、dialogRadius=16dp、buttonRadius=20dp
+- [x] 响应式导航在 <600dp 显示 BottomNavigation，≥840dp 显示 NavigationRail
+- [x] 导航包含 4 个 Tab：隧道列表、状态、设置、日志
+- [x] `AppStateHolder` 单例暴露 `MutableStateFlow<AppState>`
+- [x] `AppState` 包含 tunnels、serverStatus、logs、settings、uiState、notifications
+- [x] `TunnelUiState` 包含 id、name、type、localAddr、localPort、remotePort、status、traffic、lastError
+- [x] `TunnelCard` 渲染在线/离线/连接中/错误/多选五种状态
+- [x] `StatusBadge` 根据状态显示绿/灰/橙脉冲/红四种样式
+- [x] `TypeChip` 支持 TCP/UDP/HTTP/HTTPS/STCP/XTCP 标签
+- [x] `TrafficRow` 使用上行蓝 `#42A5F5`、下行绿 `#66BB6A`
+- [x] `EmptyState` 提供无隧道与搜索无结果两种表现
+- [x] `ErrorBanner` 显示错误信息、重连计数、重试/设置按钮
+- [x] `ConfirmDialog` 使用 scale + fade 动画，按钮布局符合设计文档
+- [x] `SearchBar` 支持搜索输入与清除
+- [x] `FilterChips` 支持类型与状态过滤
+- [x] `LogEntryRow` 按 DEBUG/INFO/WARN/ERROR 着色
+- [x] `TunnelListScreen` 集成 SearchBar、FilterChips、LazyColumn、FAB
+- [x] `StatusScreen`、`SettingsScreen`、`LogScreen` 可通过导航进入
+- [x] Android `MainActivity` 正常启动共享 `App`
+- [x] Desktop `Main.kt` 正常启动窗口
+- [x] `./gradlew :composeApp:assembleDebug` 构建成功
+- [x] `./gradlew :composeApp:run` 桌面端可运行
