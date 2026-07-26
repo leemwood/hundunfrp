@@ -120,6 +120,7 @@ $env:ANDROID_HOME = "E:\Android\Sdk"
 - [x] SettingsScreen「测试连接」按钮 — TCP Socket 连通性检测
 - [x] Desktop CLI 模式 — `--headless` 标志无窗口运行
 - [x] 自动连接 — autoStart 设置开启时启动即连
+- [x] 前后端打通 — 移除全部 Mock 数据；AppStateHolder 持有 FrpController 并新增 connectServer/disconnectServer/updateTunnelStatus/updateTrafficTotals 等方法；FrpLogParser（日志事件解析）+ FrpAdminStatus（frpc admin API `/api/status` 轮询，端口 7400）回传真实隧道状态/流量/延迟；StatusScreen 流量图表与最近事件改状态驱动；SettingsScreen 新增连接/断开按钮；FrpConfigBuilder 修正为合法 frpc ini（段名=tunnel.id，含 admin 配置）；进程意外退出支持 autoReconnect 重连（最多5次）
 
 ### 未完成（按优先级）
 1. **[中] Android frpc 二进制捆绑** — 将 frpc 编译进 APK 的 jniLibs

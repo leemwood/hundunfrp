@@ -30,7 +30,6 @@ import cn.lemwood.navigation.NavigationType
 import cn.lemwood.navigation.Screen
 import cn.lemwood.navigation.toNavigationType
 import cn.lemwood.model.AppSettings
-import cn.lemwood.platform.FrpController
 import cn.lemwood.state.AppStateHolder
 import cn.lemwood.theme.AppDimen
 import kotlinx.coroutines.flow.map
@@ -71,7 +70,7 @@ fun AppScaffold() {
         val snackbarHostState = remember { SnackbarHostState() }
         var editingTunnelId by remember { mutableStateOf<String?>(null) }
         val isEditing = editingTunnelId != null
-        val frpController = remember { FrpController() }
+        var hasAutoStarted by remember { mutableStateOf(false) }
 
         val settings by AppStateHolder.state.map { it.settings }.collectAsState(AppSettings())
         if (!settings.hasCompletedOnboarding) {
@@ -83,14 +82,10 @@ fun AppScaffold() {
             return@BoxWithConstraints
         }
 
-        LaunchedEffect(Unit) {
-            val settings = AppStateHolder.state.value.settings
-            if (settings.autoStart && settings.serverAddr.isNotBlank()) {
-                frpController.connect(
-                    host = settings.serverAddr,
-                    port = settings.serverPort,
-                    token = settings.serverToken,
-                )
+        LaunchedEffect(settings) {
+            if (!hasAutoStarted && settings.autoStart && settings.serverAddr.isNotBlank()) {
+                hasAutoStarted = true
+                AppStateHolder.connectServer()
             }
         }
 

@@ -25,11 +25,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import cn.lemwood.components.StatusBadge
 import cn.lemwood.components.TrafficChart
-import cn.lemwood.components.generateMockTrafficData
+import cn.lemwood.components.TrafficDataPoint
 import cn.lemwood.model.AppState
+import cn.lemwood.model.LogLevel
 import cn.lemwood.model.TunnelStatus
 import cn.lemwood.state.AppStateHolder
 import cn.lemwood.theme.AppDimen
+import cn.lemwood.theme.ConnectingColor
+import cn.lemwood.theme.ErrorColor
 import cn.lemwood.theme.OnlineColor
 import kotlinx.coroutines.flow.map
 
@@ -43,6 +46,15 @@ fun StatusScreen(
     val onlineCount = tunnels.count { it.status == TunnelStatus.ONLINE }
     val totalCount = tunnels.size
     val activityRatio = if (totalCount > 0) onlineCount.toFloat() / totalCount else 0f
+    val trafficHistory = appState.trafficHistory
+    val peakBytesPerSecond = trafficHistory.maxOfOrNull { it.upBytesPerSec + it.downBytesPerSec } ?: 0L
+    val dataPoints = trafficHistory.map { sample ->
+        TrafficDataPoint(
+            label = formatTimeHm(sample.timestamp),
+            upload = sample.upBytesPerSec.toFloat(),
+            download = sample.downBytesPerSec.toFloat(),
+        )
+    }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -55,9 +67,10 @@ fun StatusScreen(
 
         item {
             TrafficSummaryCard(
-                uploadBytes = 15_200_000L,
-                downloadBytes = 42_700_000L,
-                peakBytesPerSecond = 2_300_000L,
+                uploadBytes = server.totalUploadBytes,
+                downloadBytes = server.totalDownloadBytes,
+                peakBytesPerSecond = peakBytesPerSecond,
+                dataPoints = dataPoints,
             )
         }
 
@@ -78,17 +91,17 @@ fun StatusScreen(
         }
 
         items(
-            items = listOf(
-                "12:34 mc-server 流量异常" to "WARN",
-                "12:30 ssh-dev 断开" to "INFO",
-                "12:28 已连接 frp.example.com:7000" to "INFO",
-            ),
-            key = { it.first },
-        ) { (message, _) ->
+            items = appState.logs.takeLast(5).reversed(),
+            key = { "${it.timestamp}_${it.message.hashCode()}" },
+        ) { entry ->
             Text(
-                text = message,
+                text = "${formatTimeHm(entry.timestamp)} ${entry.message}",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = when (entry.level) {
+                    LogLevel.ERROR -> ErrorColor
+                    LogLevel.WARN -> ConnectingColor
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
                 modifier = Modifier.padding(vertical = 4.dp),
             )
         }
@@ -148,6 +161,7 @@ private fun TrafficSummaryCard(
     uploadBytes: Long,
     downloadBytes: Long,
     peakBytesPerSecond: Long,
+    dataPoints: List<TrafficDataPoint>,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -182,9 +196,18 @@ private fun TrafficSummaryCard(
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            TrafficChart(
-                dataPoints = generateMockTrafficData(12),
-            )
+            if (dataPoints.size >= 2) {
+                TrafficChart(
+                    dataPoints = dataPoints,
+                )
+            } else {
+                Text(
+                    text = "暂无流量数据，连接后自动采集",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            }
         }
     }
 }
@@ -269,6 +292,14 @@ private fun formatBytes(bytes: Long): String {
 private fun formatDuration(seconds: Long): String {
     val hours = seconds / 3600
     val minutes = (seconds % 3600) / 60
+    return "%02d:%02d".format(hours, minutes)
+}
+
+// commonMain 无 kotlinx.datetime 依赖，用取模换算 HH:mm（按 UTC 计）
+private fun formatTimeHm(timestamp: Long): String {
+    val totalMinutes = (timestamp / 60_000L) % (24 * 60)
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
     return "%02d:%02d".format(hours, minutes)
 }
 

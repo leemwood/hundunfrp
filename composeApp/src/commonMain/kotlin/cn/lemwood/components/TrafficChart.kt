@@ -135,13 +135,3 @@ private fun LegendItem(
     }
 }
 
-fun generateMockTrafficData(count: Int): List<TrafficDataPoint> {
-    val random = kotlin.random.Random(42)
-    return (0 until count).map { i ->
-        TrafficDataPoint(
-            label = "${i * 5}min",
-            upload = random.nextFloat() * 2_000_000f,
-            download = random.nextFloat() * 4_000_000f,
-        )
-    }
-}

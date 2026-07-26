@@ -17,28 +17,31 @@ object FrpConfigBuilder {
         if (settings.timeoutSeconds > 0) {
             sb.appendLine("login_fail_exit = false")
         }
+        sb.appendLine("admin_addr = 127.0.0.1")
+        sb.appendLine("admin_port = 7400")
+        sb.appendLine("admin_user = admin")
+        sb.appendLine("admin_pwd = admin")
         sb.appendLine()
 
         tunnels.filter { it.enabled }.forEach { tunnel ->
-            val section = when (tunnel.type) {
-                TunnelType.TCP -> "tcp"
-                TunnelType.UDP -> "udp"
-                TunnelType.HTTP -> "http"
-                TunnelType.HTTPS -> "https"
-                TunnelType.STCP -> "stcp"
-                TunnelType.XTCP -> "xtcp"
-            }
-            sb.appendLine("[$section]")
-            sb.appendLine("name = ${tunnel.id}")
+            val isHttp = tunnel.type == TunnelType.HTTP || tunnel.type == TunnelType.HTTPS
+            // http/https 隧道没有 custom_domains 无法生效，整条跳过不生成
+            if (isHttp && tunnel.customDomain.isNullOrBlank()) return@forEach
+
+            // frpc ini 以段名作为代理名，段名 = tunnel.id，供日志/admin API 回传时匹配
+            sb.appendLine("[${tunnel.id}]")
             sb.appendLine("type = ${tunnel.type.name.lowercase()}")
             sb.appendLine("local_ip = ${tunnel.localAddr}")
             sb.appendLine("local_port = ${tunnel.localPort}")
-            sb.appendLine("remote_port = ${tunnel.remotePort}")
+            if (isHttp) {
+                sb.appendLine("custom_domains = ${tunnel.customDomain}")
+            } else {
+                sb.appendLine("remote_port = ${tunnel.remotePort}")
+            }
 
             if (tunnel.encryption) sb.appendLine("use_encryption = true")
             if (tunnel.compression) sb.appendLine("use_compression = true")
             if (tunnel.tls) sb.appendLine("tls_enable = true")
-            tunnel.customDomain?.let { sb.appendLine("custom_domains = $it") }
             tunnel.httpUser?.let { sb.appendLine("http_user = $it") }
             tunnel.httpPassword?.let { sb.appendLine("http_pwd = $it") }
             sb.appendLine()

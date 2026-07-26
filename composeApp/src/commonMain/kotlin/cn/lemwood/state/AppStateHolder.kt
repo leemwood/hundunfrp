@@ -3,17 +3,16 @@ package cn.lemwood.state
 import cn.lemwood.model.AppSettings
 import cn.lemwood.model.AppState
 import cn.lemwood.model.LogEntry
-import cn.lemwood.model.LogLevel
 import cn.lemwood.model.ServerStatus
-import cn.lemwood.model.Traffic
+import cn.lemwood.model.TrafficSample
 import cn.lemwood.model.TunnelStatus
-import cn.lemwood.model.TunnelType
 import cn.lemwood.model.TunnelUiState
 import cn.lemwood.model.UIState
 import cn.lemwood.data.SettingsStore
 import cn.lemwood.data.TunnelConfigStore
 import cn.lemwood.data.createSettingsStore
 import cn.lemwood.data.createTunnelConfigStore
+import cn.lemwood.platform.FrpController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,15 +21,21 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 object AppStateHolder {
-    val state = MutableStateFlow(initialAppState())
+    val state = MutableStateFlow(AppState())
 
     var settingsStore: SettingsStore? = null
         private set
     var tunnelStore: TunnelConfigStore? = null
         private set
 
+    private val controller by lazy { FrpController() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var initialized = false
+
+    // 上一次流量总量，用于计算速率
+    private var lastTotalUp: Long = 0L
+    private var lastTotalDown: Long = 0L
+    private var lastSampleTime: Long = 0L
 
     fun init(context: Any? = null) {
         if (initialized) return
@@ -67,6 +72,8 @@ object AppStateHolder {
             current.copy(tunnels = filtered + tunnel)
         }
         persistTunnels()
+        // 已连接时重启 frpc 使新配置生效
+        if (state.value.serverStatus.connected) connectServer()
     }
 
     fun updateTunnel(tunnel: TunnelUiState) {
@@ -76,6 +83,7 @@ object AppStateHolder {
             )
         }
         persistTunnels()
+        if (state.value.serverStatus.connected) connectServer()
     }
 
     fun deleteTunnel(id: String) {
@@ -83,6 +91,7 @@ object AppStateHolder {
             current.copy(tunnels = current.tunnels.filter { it.id != id })
         }
         persistTunnels()
+        if (state.value.serverStatus.connected) connectServer()
     }
 
     fun toggleTunnel(id: String) {
@@ -101,6 +110,13 @@ object AppStateHolder {
             current.copy(tunnels = updated)
         }
         persistTunnels()
+        // 有启用隧道则（重）连接，全部停用则断开
+        val current = state.value
+        if (current.tunnels.any { it.enabled }) {
+            if (current.settings.serverAddr.isNotBlank()) connectServer()
+        } else {
+            disconnectServer()
+        }
     }
 
     fun setServerStatus(status: ServerStatus) {
@@ -157,102 +173,136 @@ object AppStateHolder {
         state.update { it.copy(uiState = uiState) }
     }
 
-    private fun initialAppState(): AppState = AppState(
-        tunnels = listOf(
-            TunnelUiState(
-                id = "mc-server",
-                name = "mc-server",
-                type = TunnelType.TCP,
-                localAddr = "127.0.0.1",
-                localPort = 25565,
-                remotePort = 25565,
-                status = TunnelStatus.ONLINE,
-                enabled = true,
-                traffic = Traffic(up = 1_228_800, down = 3_670_400)
-            ),
-            TunnelUiState(
-                id = "ssh-dev",
-                name = "ssh-dev",
-                type = TunnelType.TCP,
-                localAddr = "127.0.0.1",
-                localPort = 22,
-                remotePort = 7022,
-                status = TunnelStatus.OFFLINE,
-                enabled = false
-            ),
-            TunnelUiState(
-                id = "web-demo",
-                name = "web-demo",
-                type = TunnelType.HTTP,
-                localAddr = "127.0.0.1",
-                localPort = 8080,
-                remotePort = 80,
-                status = TunnelStatus.CONNECTING,
-                enabled = true
-            ),
-            TunnelUiState(
-                id = "db-tunnel",
-                name = "db-tunnel",
-                type = TunnelType.TCP,
-                localAddr = "127.0.0.1",
-                localPort = 3306,
-                remotePort = 7306,
-                status = TunnelStatus.ERROR,
-                enabled = true,
-                lastError = "dial tcp 127.0.0.1:3306: connect: connection refused"
-            ),
-            TunnelUiState(
-                id = "udp-voice",
-                name = "udp-voice",
-                type = TunnelType.UDP,
-                localAddr = "127.0.0.1",
-                localPort = 5060,
-                remotePort = 5060,
-                status = TunnelStatus.OFFLINE,
-                enabled = false
+    /** 使用当前 settings 连接 frp 服务器（重启 frpc 子进程） */
+    fun connectServer() {
+        val settings = state.value.settings
+        state.update { current ->
+            current.copy(
+                serverStatus = current.serverStatus.copy(
+                    connected = false,
+                    server = "${settings.serverAddr}:${settings.serverPort}",
+                    latencyMs = -1,
+                    uptimeSeconds = 0L
+                )
             )
-        ),
-        serverStatus = ServerStatus(
-            connected = true,
-            server = "frp.example.com:7000",
-            latencyMs = 23,
-            uptimeSeconds = 45_240,
-            reconnectCount = 0
-        ),
-        settings = AppSettings(
-            serverAddr = "frp.example.com",
-            serverPort = 7000,
-            serverToken = "",
-            autoStart = true,
-            autoReconnect = true,
-            notifications = false,
-            timeoutSeconds = 30,
-            logLevel = LogLevel.INFO,
-            theme = "system",
-            dynamicColor = false
-        ),
-        logs = listOf(
-            LogEntry(
-                level = LogLevel.INFO,
-                message = "连接成功",
-                timestamp = 1_719_812_340_000L,
-            ),
-            LogEntry(
-                level = LogLevel.WARN,
-                message = "ssh-dev 断开 | 重连 1/5",
-                timestamp = 1_719_812_350_000L,
-            ),
-            LogEntry(
-                level = LogLevel.ERROR,
-                message = "连接超时",
-                timestamp = 1_719_812_352_000L,
-            ),
-            LogEntry(
-                level = LogLevel.INFO,
-                message = "mc-server 流量异常恢复",
-                timestamp = 1_719_812_400_000L,
-            ),
-        ),
-        uiState = UIState.Idle
-    )
+        }
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                controller.connect(
+                    host = settings.serverAddr,
+                    port = settings.serverPort,
+                    token = settings.serverToken
+                )
+            }
+        }
+    }
+
+    /** 断开 frp 连接，所有启用隧道置为离线 */
+    fun disconnectServer() {
+        state.update { current ->
+            current.copy(
+                serverStatus = current.serverStatus.copy(connected = false, latencyMs = 0),
+                tunnels = current.tunnels.map { tunnel ->
+                    if (tunnel.enabled) tunnel.copy(status = TunnelStatus.OFFLINE) else tunnel
+                }
+            )
+        }
+        scope.launch(Dispatchers.IO) {
+            runCatching { controller.disconnect() }
+        }
+    }
+
+    fun updateTunnelStatus(id: String, status: TunnelStatus, lastError: String? = null) {
+        state.update { current ->
+            current.copy(
+                tunnels = current.tunnels.map { tunnel ->
+                    if (tunnel.id == id) tunnel.copy(status = status, lastError = lastError) else tunnel
+                }
+            )
+        }
+    }
+
+    fun updateTunnelTraffic(id: String, up: Long, down: Long) {
+        state.update { current ->
+            current.copy(
+                tunnels = current.tunnels.map { tunnel ->
+                    if (tunnel.id == id) {
+                        tunnel.copy(traffic = tunnel.traffic.copy(up = up, down = down))
+                    } else {
+                        tunnel
+                    }
+                }
+            )
+        }
+    }
+
+    /** 更新流量总量，并根据与上一条样本的差值计算速率追加到历史 */
+    fun updateTrafficTotals(up: Long, down: Long) {
+        val now = System.currentTimeMillis()
+        val lastSample = state.value.trafficHistory.lastOrNull()
+        val intervalSec = (now - lastSampleTime) / 1000L
+        val (upRate, downRate) = if (intervalSec > 0 && lastSampleTime > 0L) {
+            val upDelta = (up - lastTotalUp).coerceAtLeast(0L) / intervalSec
+            val downDelta = (down - lastTotalDown).coerceAtLeast(0L) / intervalSec
+            upDelta to downDelta
+        } else {
+            // 间隔无效时沿用上一次速率，没有则为 0
+            (lastSample?.upBytesPerSec ?: 0L) to (lastSample?.downBytesPerSec ?: 0L)
+        }
+        lastTotalUp = up
+        lastTotalDown = down
+        lastSampleTime = now
+        state.update { current ->
+            val history = (current.trafficHistory + TrafficSample(
+                upBytesPerSec = upRate,
+                downBytesPerSec = downRate,
+                timestamp = now
+            )).takeLast(120)
+            current.copy(
+                serverStatus = current.serverStatus.copy(
+                    totalUploadBytes = up,
+                    totalDownloadBytes = down
+                ),
+                trafficHistory = history
+            )
+        }
+    }
+
+    fun setServerConnected(latencyMs: Int) {
+        val settings = state.value.settings
+        state.update { current ->
+            current.copy(
+                serverStatus = current.serverStatus.copy(
+                    connected = true,
+                    server = "${settings.serverAddr}:${settings.serverPort}",
+                    latencyMs = latencyMs
+                )
+            )
+        }
+    }
+
+    fun setServerDisconnected() {
+        state.update { current ->
+            current.copy(
+                serverStatus = current.serverStatus.copy(connected = false, latencyMs = 0),
+                tunnels = current.tunnels.map { it.copy(status = TunnelStatus.OFFLINE) }
+            )
+        }
+    }
+
+    fun updateUptime(seconds: Long) {
+        state.update { current ->
+            current.copy(serverStatus = current.serverStatus.copy(uptimeSeconds = seconds))
+        }
+    }
+
+    fun incrementReconnectCount() {
+        state.update { current ->
+            current.copy(
+                serverStatus = current.serverStatus.copy(
+                    reconnectCount = current.serverStatus.reconnectCount + 1
+                )
+            )
+        }
+    }
 }

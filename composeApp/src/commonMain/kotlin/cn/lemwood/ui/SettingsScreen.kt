@@ -42,6 +42,7 @@ import cn.lemwood.data.showFileSaveDialog
 import cn.lemwood.model.AppSettings
 import cn.lemwood.model.AppState
 import cn.lemwood.model.LogLevel
+import cn.lemwood.model.ServerStatus
 import cn.lemwood.platform.FrpController
 import cn.lemwood.state.AppStateHolder
 import cn.lemwood.theme.AppDimen
@@ -70,6 +71,7 @@ fun SettingsScreen(
         SettingsSection(title = "服务端连接") {
             ServerConnectionSettings(
                 settings = settings,
+                serverStatus = appState.serverStatus,
                 frpController = frpController,
                 snackbarHostState = snackbarHostState,
                 scope = scope,
@@ -116,6 +118,7 @@ private fun SettingsSection(
 @Composable
 private fun ServerConnectionSettings(
     settings: AppSettings,
+    serverStatus: ServerStatus,
     frpController: FrpController,
     snackbarHostState: SnackbarHostState,
     scope: kotlinx.coroutines.CoroutineScope,
@@ -149,6 +152,46 @@ private fun ServerConnectionSettings(
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
     )
+    Spacer(modifier = Modifier.height(AppDimen.CardPadding))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppDimen.CardPadding),
+    ) {
+        Button(
+            onClick = {
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        if (serverStatus.connected) {
+                            AppStateHolder.disconnectServer()
+                        } else {
+                            AppStateHolder.connectServer()
+                        }
+                    }
+                }
+            },
+            enabled = serverStatus.connected || settings.serverAddr.isNotBlank(),
+        ) {
+            Text(if (serverStatus.connected) "断开" else "连接")
+        }
+        Text(
+            text = when {
+                serverStatus.connected -> "已连接 ${serverStatus.server}"
+                serverStatus.server.isNotBlank() && serverStatus.latencyMs == -1 -> "连接中..."
+                else -> "未连接"
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    if (serverStatus.connected) {
+        Spacer(modifier = Modifier.height(AppDimen.CardPadding / 2))
+        Text(
+            text = "修改后需重新连接生效",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
     Spacer(modifier = Modifier.height(AppDimen.CardPadding))
     Row(
         modifier = Modifier.fillMaxWidth(),

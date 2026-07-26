@@ -8,5 +8,7 @@ data class ServerStatus(
     val server: String = "",
     val latencyMs: Int = -1,
     val uptimeSeconds: Long = 0L,
-    val reconnectCount: Int = 0
+    val reconnectCount: Int = 0,
+    val totalUploadBytes: Long = 0L,
+    val totalDownloadBytes: Long = 0L
 )

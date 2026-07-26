@@ -9,5 +9,6 @@ data class AppState(
     val logs: List<LogEntry> = emptyList(),
     val settings: AppSettings = AppSettings(),
     val uiState: UIState = UIState.Idle,
-    val notifications: List<Notification> = emptyList()
+    val notifications: List<Notification> = emptyList(),
+    val trafficHistory: List<TrafficSample> = emptyList()
 )
