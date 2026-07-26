@@ -29,6 +29,12 @@ git clone --depth 1 --branch "$FRP_VERSION" https://github.com/fatedier/frp "$TM
 
 cd "$TMP_DIR/frp"
 
+# frpc 的 web dashboard 静态文件不在 git 仓库里（release 流程中由 npm 构建），
+# web/frpc/embed.go 的 go:embed 找不到 dist 会编译失败。
+# 本 App 只用 admin API（/api/status），不需要 dashboard 页面，放空占位文件即可。
+mkdir -p web/frpc/dist
+echo '<html><body>frpc dashboard not bundled</body></html>' > web/frpc/dist/index.html
+
 # ABI:GOARCH 列表，armeabi-v7a 需要额外 GOARM=7
 build_frpc() {
     abi="$1"
