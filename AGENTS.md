@@ -121,12 +121,24 @@ $env:ANDROID_HOME = "E:\Android\Sdk"
 - [x] Desktop CLI 模式 — `--headless` 标志无窗口运行
 - [x] 自动连接 — autoStart 设置开启时启动即连
 - [x] 前后端打通 — 移除全部 Mock 数据；AppStateHolder 持有 FrpController 并新增 connectServer/disconnectServer/updateTunnelStatus/updateTrafficTotals 等方法；FrpLogParser（日志事件解析）+ FrpAdminStatus（frpc admin API `/api/status` 轮询，端口 7400）回传真实隧道状态/流量/延迟；StatusScreen 流量图表与最近事件改状态驱动；SettingsScreen 新增连接/断开按钮；FrpConfigBuilder 修正为合法 frpc ini（段名=tunnel.id，含 admin 配置）；进程意外退出支持 autoReconnect 重连（最多5次）
+- [x] Android frpc 二进制捆绑 — CI Go 交叉编译 v0.70.1 进 jniLibs（arm64-v8a），详见下方踩坑记录
+- [x] GitHub Actions APK CI — push main 自动构建并上传 debug APK artifact
 
 ### 未完成（按优先级）
-1. **[中] Android frpc 二进制捆绑** — 将 frpc 编译进 APK 的 jniLibs
-2. **[低] Android前台服务 / 通知**
-3. **[低] Desktop系统托盘 / CLI模式**
-4. **[低] 引导页 / 文件选择器 / 动态取色**
+1. **[低] Android前台服务 / 通知**
+2. **[低] Desktop系统托盘 / CLI模式**
+3. **[低] 引导页 / 文件选择器 / 动态取色**
+
+---
+
+## 踩坑记录
+
+### Android frpc 二进制捆绑（2026-07-27 完成）
+- **方案**:`scripts/build-frpc-android.sh` 用 Go 交叉编译 frp v0.70.1 → `composeApp/src/androidMain/jniLibs/arm64-v8a/libfrpc.so`,CI 在 assembleDebug 前执行；产物已 gitignore，不入库。
+- **仅 arm64-v8a**:Go 的 android 目标只有 arm64 支持纯 Go 内部链接，arm/amd64 报 "requires external (cgo) linking"（需 NDK)，不要再加其他 ABI。
+- **web embed**:frp 源码 `web/frpc/embed.go` go:embed 的 dist 不在 git 里，构建前必须造占位 `web/frpc/dist/index.html`，否则编译失败（App 只用 admin API，不需要 dashboard)。
+- **useLegacyPackaging**:minSdk 24 + AGP 8.6 默认 extractNativeLibs=false,so 不解压到 nativeLibraryDir、无法 exec;`build.gradle.kts` 已开 `packaging.jniLibs.useLegacyPackaging = true`，勿关。
+- **加载路径**:`extractFrpcBinary` 优先从 `nativeLibraryDir/libfrpc.so` 复制到 `filesDir/frp/frpc` 再执行。
 
 ---
 

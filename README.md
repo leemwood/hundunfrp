@@ -49,7 +49,7 @@ cd hundunfrp
 | 平台 | 状态 | 说明 |
 |------|------|------|
 | Desktop (JVM) | 可用 | 需自备 `frpc` 二进制：放入 PATH 或 `D:\.config\frp-kmp\` 目录 |
-| Android | 部分可用 | UI 与后端桥接已完成，但 **frpc 二进制尚未捆绑进 APK**（见下方路线图），暂需自行放入 jniLibs |
+| Android | 可用（arm64） | APK 内置 frpc v0.70.1（CI 用 Go 交叉编译，`jniLibs/arm64-v8a/libfrpc.so`），开箱即用；仅支持 arm64-v8a 设备 |
 
 桌面端支持 `--headless` 无窗口 CLI 模式。
 
@@ -66,7 +66,7 @@ cd hundunfrp
 
 ## 路线图
 
-- [ ] Android frpc 二进制捆绑进 APK（jniLibs）
+- [x] Android frpc 二进制捆绑进 APK（jniLibs，CI Go 交叉编译，arm64-v8a）
 - [ ] Android 前台服务 / 常驻通知
 - [ ] Desktop 系统托盘
 - [ ] 动态取色（Material You）
