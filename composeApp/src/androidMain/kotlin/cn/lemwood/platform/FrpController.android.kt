@@ -14,31 +14,38 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.BufferedReader
 import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStreamReader
+import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
 
+/**
+ * Android frp 控制器（JNI 方案）
+ * frpc 通过 [FrpcNative] 在 App 进程内运行，无子进程；
+ * 日志经 frpc 写入 <filesDir>/frp/frpc.log，本类 tail 增量解析；
+ * 隧道状态/流量仍走 frpc admin API（127.0.0.1:7400）轮询。
+ */
 actual class FrpController {
-    private var process: java.lang.Process? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollingJob: Job? = null
+    private var logTailJob: Job? = null
 
     @Volatile
     private var manualStop = false
 
     @Volatile
-    private var processStartTime = 0L
+    private var frpcStartTime = 0L
 
     @Volatile
     private var lastLatencyMs = -1
 
     @Volatile
     private var reconnectAttempts = 0
+
+    @Volatile
+    private var pollFailures = 0
 
     private val context: Context?
         get() = AndroidFrpContext.appContext
@@ -56,48 +63,66 @@ actual class FrpController {
             return false
         }
 
+        if (!FrpcNative.available) {
+            AppStateHolder.addLog(
+                LogEntry(
+                    level = LogLevel.ERROR,
+                    message = "frpc 原生库加载失败，当前设备可能不是 arm64-v8a",
+                    timestamp = System.currentTimeMillis(),
+                )
+            )
+            return false
+        }
+
         return try {
-            // 静默停掉旧进程，避免触发自动重连与状态回写
+            // 静默停掉旧实例，避免触发自动重连与状态回写
             manualStop = true
-            stopProcess()
+            stopFrpc()
             manualStop = false
 
             // 启动前 TCP 计时测延迟，供登录成功后回写
             lastLatencyMs = measureLatencyMs(host, port)
 
             val state = AppStateHolder.state.value
-            val config = FrpConfigBuilder.buildConfig(state.settings, state.tunnels)
             val configDir = File(ctx.filesDir, "frp")
             configDir.mkdirs()
+
+            // 截断旧日志，tail 从头开始读
+            val logFile = File(configDir, "frpc.log")
+            logFile.writeText("")
+
+            // log.* 必须落在 [common] 段：插到第一个隧道段之前，无隧道则追加到末尾
+            val baseConfig = FrpConfigBuilder.buildConfig(state.settings, state.tunnels)
+            val logConfig = "log.to = ${logFile.absolutePath}\nlog.level = info\n"
+            val config = when (val idx = baseConfig.indexOf("\n[")) {
+                -1 -> baseConfig + logConfig
+                else -> baseConfig.substring(0, idx + 1) + logConfig + baseConfig.substring(idx + 1)
+            }
             val configFile = File(configDir, "frpc.ini")
             configFile.writeText(config)
 
-            val frpcBinary = extractFrpcBinary(ctx) ?: run {
+            val rc = FrpcNative.nativeStart(configFile.absolutePath)
+            if (rc != 0) {
                 AppStateHolder.addLog(
                     LogEntry(
                         level = LogLevel.ERROR,
-                        message = "未找到 frpc 二进制文件，请将对应架构的 frpc 放入 jniLibs/",
+                        message = "frpc 启动失败，返回码: $rc",
                         timestamp = System.currentTimeMillis(),
                     )
                 )
                 return false
             }
-            frpcBinary.setExecutable(true)
 
-            val pb = ProcessBuilder(frpcBinary.absolutePath, "-c", configFile.absolutePath)
-            pb.directory(configDir)
-            pb.redirectErrorStream(true)
-            val p = pb.start()
-            process = p
-            processStartTime = System.currentTimeMillis()
+            frpcStartTime = System.currentTimeMillis()
+            pollFailures = 0
 
-            startLogReader(p)
+            startLogTail(logFile)
             startPolling()
 
             AppStateHolder.addLog(
                 LogEntry(
                     level = LogLevel.INFO,
-                    message = "frpc 启动中...",
+                    message = "frpc 启动中（进程内 JNI 模式）...",
                     timestamp = System.currentTimeMillis(),
                 )
             )
@@ -116,7 +141,7 @@ actual class FrpController {
 
     actual fun disconnect() {
         manualStop = true
-        stopProcess()
+        stopFrpc()
         AppStateHolder.setServerDisconnected()
     }
 
@@ -144,7 +169,6 @@ actual class FrpController {
     }
 
     actual fun reloadConfig(): Boolean {
-        val ctx = context ?: return false
         val state = AppStateHolder.state.value
         return connect(
             host = state.settings.serverAddr,
@@ -164,37 +188,51 @@ actual class FrpController {
         }
     }
 
-    private fun stopProcess() {
+    private fun stopFrpc() {
         try {
             pollingJob?.cancel()
             pollingJob = null
-            process?.destroy()
-            process = null
+            logTailJob?.cancel()
+            logTailJob = null
+            if (FrpcNative.available) {
+                FrpcNative.nativeStop()
+            }
         } catch (_: Exception) {}
     }
 
-    private fun startLogReader(p: java.lang.Process) {
-        scope.launch {
-            val reader = BufferedReader(InputStreamReader(p.inputStream))
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                val msg = line ?: continue
-                handleLogEvent(FrpLogParser.parse(msg), msg)
+    /**
+     * tail frpc.log：记录 offset 增量读取，按行切分后走 FrpLogParser 管线。
+     * 未遇到换行符的残行留在缓冲里，等下一轮补全。
+     */
+    private fun startLogTail(logFile: File) {
+        logTailJob?.cancel()
+        logTailJob = scope.launch {
+            var offset = 0L
+            val pending = StringBuilder()
+            while (isActive) {
+                try {
+                    val len = logFile.length()
+                    if (len > offset) {
+                        RandomAccessFile(logFile, "r").use { raf ->
+                            raf.seek(offset)
+                            val bytes = ByteArray((len - offset).toInt())
+                            raf.readFully(bytes)
+                            pending.append(String(bytes, Charsets.UTF_8))
+                        }
+                        offset = len
+                        var newlineIdx = pending.indexOf('\n')
+                        while (newlineIdx >= 0) {
+                            val line = pending.substring(0, newlineIdx).trimEnd('\r')
+                            pending.delete(0, newlineIdx + 1)
+                            if (line.isNotBlank()) {
+                                handleLogEvent(FrpLogParser.parse(line), line)
+                            }
+                            newlineIdx = pending.indexOf('\n')
+                        }
+                    }
+                } catch (_: Exception) {}
+                delay(LOG_TAIL_INTERVAL_MS)
             }
-            val exitCode = p.waitFor()
-            pollingJob?.cancel()
-            if (exitCode != 0) {
-                AppStateHolder.addLog(
-                    LogEntry(
-                        level = LogLevel.ERROR,
-                        message = "frpc 进程退出，退出码: $exitCode",
-                        timestamp = System.currentTimeMillis(),
-                    )
-                )
-            }
-            // 主动停止或进程已被新实例替换时不做善后处理
-            if (manualStop || p !== process) return@launch
-            handleUnexpectedExit()
         }
     }
 
@@ -268,6 +306,10 @@ actual class FrpController {
         }
     }
 
+    /**
+     * admin API 连续失败判定为 frpc 异常：autoReconnect 时重启（nativeStop + nativeStart），
+     * 最多 MAX_RECONNECT_ATTEMPTS 次，间隔 5 秒；LoginSuccess 时重置计数。
+     */
     private suspend fun handleUnexpectedExit() {
         val settings = AppStateHolder.state.value.settings
         if (settings.autoReconnect && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
@@ -276,7 +318,7 @@ actual class FrpController {
             AppStateHolder.addLog(
                 LogEntry(
                     level = LogLevel.WARN,
-                    message = "frpc 意外退出，5 秒后重连（第 $reconnectAttempts/$MAX_RECONNECT_ATTEMPTS 次）",
+                    message = "frpc 连接异常，5 秒后重连（第 $reconnectAttempts/$MAX_RECONNECT_ATTEMPTS 次）",
                     timestamp = System.currentTimeMillis(),
                 )
             )
@@ -306,14 +348,23 @@ actual class FrpController {
         pollingJob?.cancel()
         pollingJob = scope.launch {
             while (isActive) {
-                pollAdminStatus()
+                if (pollAdminStatus()) {
+                    pollFailures = 0
+                } else {
+                    pollFailures++
+                    if (pollFailures >= MAX_POLL_FAILURES && !manualStop) {
+                        pollFailures = 0
+                        handleUnexpectedExit()
+                    }
+                }
                 delay(POLL_INTERVAL_MS)
             }
         }
     }
 
-    private fun pollAdminStatus() {
-        val json = fetchAdminStatus() ?: return
+    /** @return admin API 是否可达 */
+    private fun pollAdminStatus(): Boolean {
+        val json = fetchAdminStatus() ?: return false
         val proxies = FrpAdminStatus.parse(json)
         var totalUp = 0L
         var totalDown = 0L
@@ -328,7 +379,8 @@ actual class FrpController {
             totalDown += proxy.trafficIn
         }
         AppStateHolder.updateTrafficTotals(totalUp, totalDown)
-        AppStateHolder.updateUptime((System.currentTimeMillis() - processStartTime) / 1000)
+        AppStateHolder.updateUptime((System.currentTimeMillis() - frpcStartTime) / 1000)
+        return true
     }
 
     private fun fetchAdminStatus(): String? {
@@ -363,57 +415,12 @@ actual class FrpController {
         }
     }
 
-    private fun extractFrpcBinary(ctx: Context): File? {
-        val target = File(ctx.filesDir, "frp/frpc")
-        target.parentFile?.mkdirs()
-
-        // 第一优先级：jniLibs 打包的 libfrpc.so（useLegacyPackaging 安装时解压后的真实路径）
-        try {
-            val bundled = File(ctx.applicationInfo.nativeLibraryDir, "libfrpc.so")
-            if (bundled.exists()) {
-                if (target.exists()) target.delete()
-                bundled.copyTo(target)
-                target.setExecutable(true)
-                return target
-            }
-        } catch (_: Exception) {}
-
-        // filesDir 已有可执行副本则直接复用
-        if (target.exists() && target.canExecute()) {
-            return target
-        }
-
-        // 兜底：assets / nativeLibraryDir 相邻目录中的旧式布局
-        try {
-            val arch = android.os.Build.SUPPORTED_ABIS.firstOrNull()?.takeIf {
-                it in listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
-            } ?: return null
-
-            try {
-                ctx.assets.open("jniLibs/$arch/libfrpc.so").use { input ->
-                    if (target.exists()) target.delete()
-                    FileOutputStream(target).use { output -> input.copyTo(output) }
-                }
-                target.setExecutable(true)
-                return target
-            } catch (_: Exception) {}
-
-            val fallback = File(ctx.applicationInfo.nativeLibraryDir, "../$arch/libfrpc.so")
-            if (fallback.exists()) {
-                if (target.exists()) target.delete()
-                fallback.copyTo(target)
-                target.setExecutable(true)
-                return target
-            }
-        } catch (_: Exception) {}
-
-        return null
-    }
-
     companion object {
         private const val ADMIN_STATUS_URL = "http://127.0.0.1:7400/api/status"
         private const val POLL_INTERVAL_MS = 3000L
+        private const val LOG_TAIL_INTERVAL_MS = 1000L
         private const val RECONNECT_DELAY_MS = 5000L
         private const val MAX_RECONNECT_ATTEMPTS = 5
+        private const val MAX_POLL_FAILURES = 5
     }
 }

@@ -29,7 +29,8 @@ jobs:
         with:
           go-version: stable
 
-      - name: Build frpc binaries
+      - name: Build frpc JNI library
+        # ubuntu-latest 镜像自带 NDK（$ANDROID_HOME/ndk/*），脚本自动定位版本最大者
         run: sh scripts/build-frpc-android.sh
 
       - name: Build Debug APK

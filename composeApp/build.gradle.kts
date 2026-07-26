@@ -70,9 +70,9 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
         jniLibs {
-            // minSdk 24 默认不解压 so（extractNativeLibs=false），
-            // frpc 需要落地为真实文件才能 exec，强制安装时解压
-            useLegacyPackaging = true
+            // JNI 方案下 System.loadLibrary 直接从 APK 加载 so，无需安装时解压，
+            // 保持 extractNativeLibs=false（体积更小）
+            useLegacyPackaging = false
         }
     }
 
