@@ -39,3 +39,6 @@ node_modules/
 # App generated backup files
 frp-kmp-backup.json
 *.backup.json
+
+# frpc binaries (built by CI, see scripts/build-frpc-android.sh)
+composeApp/src/androidMain/jniLibs/

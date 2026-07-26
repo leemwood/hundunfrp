@@ -364,43 +364,47 @@ actual class FrpController {
     }
 
     private fun extractFrpcBinary(ctx: Context): File? {
-        val arch = android.os.Build.SUPPORTED_ABIS.firstOrNull()?.takeIf {
-            it in listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
-        } ?: return null
+        val target = File(ctx.filesDir, "frp/frpc")
+        target.parentFile?.mkdirs()
 
-        val binaryFile = File(ctx.filesDir, "frp/frpc-$arch")
-        if (binaryFile.exists() && binaryFile.canExecute()) {
-            return binaryFile
+        // 第一优先级：jniLibs 打包的 libfrpc.so（useLegacyPackaging 安装时解压后的真实路径）
+        try {
+            val bundled = File(ctx.applicationInfo.nativeLibraryDir, "libfrpc.so")
+            if (bundled.exists()) {
+                if (target.exists()) target.delete()
+                bundled.copyTo(target)
+                target.setExecutable(true)
+                return target
+            }
+        } catch (_: Exception) {}
+
+        // filesDir 已有可执行副本则直接复用
+        if (target.exists() && target.canExecute()) {
+            return target
         }
 
+        // 兜底：assets / nativeLibraryDir 相邻目录中的旧式布局
         try {
-            val libPath = "jniLibs/$arch/"
-            val libNames = listOf("libfrpc.so", "frpc")
-
-            for (libName in libNames) {
-                try {
-                    val inputStream = ctx.assets.open("$libPath$libName")
-                    inputStream.use { input ->
-                        FileOutputStream(binaryFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    binaryFile.setExecutable(true)
-                    return binaryFile
-                } catch (_: Exception) {}
-            }
+            val arch = android.os.Build.SUPPORTED_ABIS.firstOrNull()?.takeIf {
+                it in listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+            } ?: return null
 
             try {
-                val libDir = File(ctx.applicationInfo.nativeLibraryDir, "../$arch/")
-                for (libName in libNames) {
-                    val libFile = File(libDir, libName)
-                    if (libFile.exists()) {
-                        libFile.copyTo(binaryFile, overwrite = true)
-                        binaryFile.setExecutable(true)
-                        return binaryFile
-                    }
+                ctx.assets.open("jniLibs/$arch/libfrpc.so").use { input ->
+                    if (target.exists()) target.delete()
+                    FileOutputStream(target).use { output -> input.copyTo(output) }
                 }
+                target.setExecutable(true)
+                return target
             } catch (_: Exception) {}
+
+            val fallback = File(ctx.applicationInfo.nativeLibraryDir, "../$arch/libfrpc.so")
+            if (fallback.exists()) {
+                if (target.exists()) target.delete()
+                fallback.copyTo(target)
+                target.setExecutable(true)
+                return target
+            }
         } catch (_: Exception) {}
 
         return null

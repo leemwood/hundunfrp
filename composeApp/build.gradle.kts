@@ -69,6 +69,11 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        jniLibs {
+            // minSdk 24 默认不解压 so（extractNativeLibs=false），
+            // frpc 需要落地为真实文件才能 exec，强制安装时解压
+            useLegacyPackaging = true
+        }
     }
 
     buildTypes {

@@ -24,6 +24,14 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Build frpc binaries
+        run: sh scripts/build-frpc-android.sh
+
       - name: Build Debug APK
         run: ./gradlew :composeApp:assembleDebug --stacktrace
 
