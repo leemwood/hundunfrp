@@ -54,12 +54,12 @@ build_frpc() {
     fi
 }
 
+# 注：android/arm（armeabi-v7a）Go 要求外部 cgo 链接（需 NDK），纯 Go 无法编译，故只打 64 位 ABI
 build_frpc arm64-v8a   arm64 ""
-build_frpc armeabi-v7a arm   7
 build_frpc x86_64      amd64 ""
 
 echo "==> 构建完成，产物大小:"
-for abi in arm64-v8a armeabi-v7a x86_64; do
+for abi in arm64-v8a x86_64; do
     f="$OUTPUT_DIR/$abi/libfrpc.so"
     if [ -f "$f" ]; then
         size=$(du -h "$f" | cut -f1)
