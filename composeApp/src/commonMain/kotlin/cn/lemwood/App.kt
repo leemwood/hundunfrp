@@ -69,7 +69,8 @@ fun AppScaffold() {
         var selectedScreen by remember { mutableStateOf(Screen.TunnelList) }
         val snackbarHostState = remember { SnackbarHostState() }
         var editingTunnelId by remember { mutableStateOf<String?>(null) }
-        val isEditing = editingTunnelId != null
+        // 编辑器打开状态需独立于 tunnelId：新增隧道时 tunnelId 为 null 也要打开
+        var isEditorOpen by remember { mutableStateOf(false) }
         var hasAutoStarted by remember { mutableStateOf(false) }
 
         val settings by AppStateHolder.state.map { it.settings }.collectAsState(AppSettings())
@@ -89,10 +90,10 @@ fun AppScaffold() {
             }
         }
 
-        if (isEditing) {
+        if (isEditorOpen) {
             TunnelEditorScreen(
                 tunnelId = editingTunnelId,
-                onDismiss = { editingTunnelId = null },
+                onDismiss = { isEditorOpen = false },
             )
             return@BoxWithConstraints
         }
@@ -106,8 +107,14 @@ fun AppScaffold() {
                     when (screen) {
                         Screen.TunnelList -> TunnelListScreen(
                             modifier = Modifier.fillMaxSize(),
-                            onAddTunnel = { editingTunnelId = null },
-                            onEditTunnel = { id -> editingTunnelId = id },
+                            onAddTunnel = {
+                                editingTunnelId = null
+                                isEditorOpen = true
+                            },
+                            onEditTunnel = { id ->
+                                editingTunnelId = id
+                                isEditorOpen = true
+                            },
                         )
                         Screen.Status -> StatusScreen(modifier = Modifier.fillMaxSize())
                         Screen.Settings -> SettingsScreen(
@@ -137,7 +144,10 @@ fun AppScaffold() {
                     },
                     floatingActionButton = {
                         if (selectedScreen == Screen.TunnelList) {
-                            AddTunnelFab(onClick = { editingTunnelId = null })
+                            AddTunnelFab(onClick = {
+                                editingTunnelId = null
+                                isEditorOpen = true
+                            })
                         }
                     },
                     snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -165,7 +175,10 @@ fun AppScaffold() {
                         NavigationRail(
                             header = {
                                 AddTunnelFab(
-                                    onClick = { editingTunnelId = null },
+                                    onClick = {
+                                        editingTunnelId = null
+                                        isEditorOpen = true
+                                    },
                                     modifier = Modifier.padding(top = AppDimen.ScreenPadding),
                                 )
                             },
