@@ -64,6 +64,17 @@ import kotlinx.coroutines.launch
 private val statusOptions = listOf("全部", "在线", "离线", "错误")
 private val typeOptions = listOf("全部", "TCP", "UDP", "HTTP", "HTTPS", "STCP", "XTCP")
 
+/**
+ * 筛选标签切换逻辑：点「全部」重置为全部；点其他标签时切换其选中态
+ * （已选则取消），全部取消后回落到「全部」。
+ */
+private fun toggleChipOption(selected: Set<String>, option: String): Set<String> {
+    if (option == "全部") return setOf("全部")
+    val base = selected - "全部"
+    val updated = if (option in base) base - option else base + option
+    return if (updated.isEmpty()) setOf("全部") else updated
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TunnelListTopBar(connected: Boolean) {
@@ -150,21 +161,11 @@ fun TunnelListScreen(
     }
 
     val onStatusSelect: (String) -> Unit = { option ->
-        selectedStatus = if (option == "全部") {
-            setOf("全部")
-        } else {
-            val updated = selectedStatus - "全部" + option
-            if (updated.isEmpty()) setOf("全部") else updated
-        }
+        selectedStatus = toggleChipOption(selectedStatus, option)
     }
 
     val onTypeSelect: (String) -> Unit = { option ->
-        selectedType = if (option == "全部") {
-            setOf("全部")
-        } else {
-            val updated = selectedType - "全部" + option
-            if (updated.isEmpty()) setOf("全部") else updated
-        }
+        selectedType = toggleChipOption(selectedType, option)
     }
 
     Box(modifier = modifier.fillMaxSize()) {

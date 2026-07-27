@@ -186,7 +186,8 @@ fun LogScreen(
                 selectedLevels = if (option == "ALL") {
                     setOf("ALL")
                 } else {
-                    val updated = selectedLevels - "ALL" + option
+                    val base = selectedLevels - "ALL"
+                    val updated = if (option in base) base - option else base + option
                     if (updated.isEmpty()) setOf("ALL") else updated
                 }
             },

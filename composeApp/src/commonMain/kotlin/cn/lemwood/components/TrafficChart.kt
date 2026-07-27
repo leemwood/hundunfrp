@@ -10,10 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -22,11 +18,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
-import cn.lemwood.components.FilterChips
-import cn.lemwood.theme.AppDimen
 import cn.lemwood.theme.DownloadTrafficColor
 import cn.lemwood.theme.UploadTrafficColor
-import kotlin.math.roundToInt
 
 data class TrafficDataPoint(
     val label: String,
@@ -39,19 +32,9 @@ fun TrafficChart(
     dataPoints: List<TrafficDataPoint>,
     modifier: Modifier = Modifier,
 ) {
-    val timeRanges = listOf("5min", "1h", "今日", "本周")
-    var selectedRange by remember { mutableStateOf(setOf("今日")) }
-
     Column(
         modifier = modifier,
     ) {
-        FilterChips(
-            options = timeRanges,
-            selected = selectedRange,
-            onSelect = { selectedRange = setOf(it) },
-        )
-        Spacer(modifier = Modifier.height(AppDimen.CardPadding))
-
         val lineColor = MaterialTheme.colorScheme.onSurfaceVariant
         val textColor = MaterialTheme.colorScheme.onSurfaceVariant
 
