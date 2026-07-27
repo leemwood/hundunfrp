@@ -59,7 +59,7 @@ $env:ANDROID_HOME = "E:\Android\Sdk"
 - **User Home**: `E:\gradle-home`（见 `gradle.properties: org.gradle.user.home`）
 - **Build Cache**: `E:\gradle-cache`（见 `gradle.properties: org.gradle.project.buildCacheDir`）
 - **Distribution 镜像**: `mirrors.cloud.tencent.com/gradle`（见 `gradle-wrapper.properties`）
-- **Maven 镜像**: settings.gradle.kts 配置了 Aliyun + Huawei Cloud 镜像（Google、Maven Central、Gradle Plugin Portal、JetBrains）
+- **Maven 镜像**: settings.gradle.kts 按 `CI` 环境变量分流——CI 直连 google/mavenCentral（阿里云镜像间歇 502，Gradle 对 5xx 不 fallthrough），本地开发用 Aliyun + Huawei Cloud 镜像
 
 ### 运行构建前
 ```powershell
