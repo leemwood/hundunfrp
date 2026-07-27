@@ -10,10 +10,10 @@
 ## 功能
 
 - **隧道管理** — 新增/编辑/删除隧道（TCP/UDP/HTTP/HTTPS/STCP/XTCP），表单校验、左滑删除 + 撤销、长按多选批量开关/删除
-- **实时监控** — 服务器连接状态、延迟、运行时长；每隧道在线状态与上下行流量；流量趋势图表
-- **真实 frpc 后端** — 以子进程方式运行 frpc，解析日志事件 + 轮询 admin API（`/api/status`）回传状态，非 Mock 数据
-- **自动重连** — frpc 意外退出时自动重连（最多 5 次，可在设置中开关）
-- **日志中心** — frpc 输出分级展示（INFO/WARN/ERROR），支持清空
+- **实时监控** — 服务器连接状态、延迟、运行时长；每隧道在线状态与错误原因（v0.70 起 frpc 不再暴露流量数据，流量统计暂不可用）
+- **真实 frpc 后端** — Android 进程内 JNI 绑定（Go c-shared）、Desktop 子进程；日志事件解析 + admin API 轮询回传真实状态，非 Mock 数据
+- **自动重连** — 连接异常时自动重连（最多 5 次，可在设置中开关）；配置变更防抖合并重启
+- **日志中心** — frpc 输出分级展示（INFO/WARN/ERROR），一键复制、分享到 [logshare.cn](https://logshare.cn) 生成链接
 - **配置管理** — 隧道与设置持久化，支持导入/导出 JSON
 - **跨平台 UI** — Material3 主题、亮暗模式、响应式导航（手机 BottomNav / 宽屏 NavigationRail）
 
@@ -49,7 +49,7 @@ cd hundunfrp
 | 平台 | 状态 | 说明 |
 |------|------|------|
 | Desktop (JVM) | 可用 | 需自备 `frpc` 二进制：放入 PATH 或 `D:\.config\frp-kmp\` 目录 |
-| Android | 可用（arm64） | APK 内置 frpc v0.70.1（CI 用 Go 交叉编译，`jniLibs/arm64-v8a/libfrpc.so`），开箱即用；仅支持 arm64-v8a 设备 |
+| Android | 可用（arm64） | APK 内置 frpc v0.70.1（CI 用 Go 交叉编译为 c-shared，`jniLibs/arm64-v8a/libfrpc_jni.so`，JNI 进程内运行），开箱即用；仅支持 arm64-v8a 设备；已真机端到端验证（远程端口 → 本机服务转发正常） |
 
 桌面端支持 `--headless` 无窗口 CLI 模式。
 
@@ -60,13 +60,16 @@ cd hundunfrp
 | 语言 | Kotlin 2.1.0 |
 | UI | Compose Multiplatform 1.8.0 (Material3) |
 | 状态 | StateFlow 单例（`AppStateHolder`），UI `collectAsState` 收集 |
-| 后端桥接 | expect/actual `FrpController`，frpc 子进程 + admin API 轮询 |
+| 后端桥接 | expect/actual `FrpController`；Android JNI（`FrpcNative`）/ Desktop 子进程 + admin API 轮询 |
 | 持久化 | Android DataStore / Desktop JSON |
 | 构建 | Gradle 8.10.2 (Kotlin DSL)，AGP 8.6.1 |
 
 ## 路线图
 
-- [x] Android frpc 二进制捆绑进 APK（jniLibs，CI Go 交叉编译，arm64-v8a）
+- [x] Android frpc 二进制捆绑进 APK（jniLibs，CI Go 交叉编译，arm64-v8a，JNI c-shared）
+- [x] 前后端打通（真实状态回传，移除全部 Mock 数据）
+- [x] 日志复制 / logshare.cn 分享
+- [ ] 流量统计（frpc v0.70 移除流量字段，待接入 frps prometheus 或上游恢复）
 - [ ] Android 前台服务 / 常驻通知
 - [ ] Desktop 系统托盘
 - [ ] 动态取色（Material You）
