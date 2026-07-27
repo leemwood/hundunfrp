@@ -15,7 +15,10 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClearAll
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,6 +31,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -37,9 +41,13 @@ import cn.lemwood.components.EmptyState
 import cn.lemwood.components.FilterChips
 import cn.lemwood.components.LogEntryRow
 import cn.lemwood.model.AppState
+import cn.lemwood.platform.uploadToLogShare
 import cn.lemwood.state.AppStateHolder
 import cn.lemwood.theme.AppDimen
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val logLevelOptions = listOf("ALL", "INFO", "WARN", "ERROR")
 
@@ -54,8 +62,11 @@ fun LogScreen(
     var selectedLevels by remember { mutableStateOf(setOf("ALL")) }
     var autoScroll by remember { mutableStateOf(true) }
     var copied by remember { mutableStateOf(false) }
+    // 0 空闲 1 上传中 2 成功 3 失败
+    var shareState by remember { mutableStateOf(0) }
     val listState = rememberLazyListState()
     val clipboardManager = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
 
     val filteredLogs = remember(logs, selectedLevels) {
         if ("ALL" in selectedLevels) logs else {
@@ -77,10 +88,56 @@ fun LogScreen(
         }
     }
 
+    // 分享结果图标 2 秒后复位
+    LaunchedEffect(shareState) {
+        if (shareState == 2 || shareState == 3) {
+            kotlinx.coroutines.delay(2000)
+            shareState = 0
+        }
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("日志") },
             actions = {
+                IconButton(
+                    enabled = shareState != 1 && filteredLogs.isNotEmpty(),
+                    onClick = {
+                        shareState = 1
+                        val text = filteredLogs.joinToString("\n") { entry ->
+                            "${formatTime(entry.timestamp)} [${entry.level.name}] ${entry.message}"
+                        }
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) { uploadToLogShare(text) }
+                            if (result.url != null) {
+                                clipboardManager.setText(AnnotatedString(result.url))
+                                shareState = 2
+                            } else {
+                                shareState = 3
+                            }
+                        }
+                    },
+                ) {
+                    Icon(
+                        imageVector = when (shareState) {
+                            1 -> Icons.Default.CloudUpload
+                            2 -> Icons.Default.Check
+                            3 -> Icons.Default.CloudOff
+                            else -> Icons.Default.Share
+                        },
+                        contentDescription = when (shareState) {
+                            1 -> "上传中"
+                            2 -> "链接已复制"
+                            3 -> "分享失败"
+                            else -> "分享到 logshare.cn"
+                        },
+                        tint = when (shareState) {
+                            2 -> MaterialTheme.colorScheme.primary
+                            3 -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
                 IconButton(
                     onClick = {
                         if (filteredLogs.isNotEmpty()) {
