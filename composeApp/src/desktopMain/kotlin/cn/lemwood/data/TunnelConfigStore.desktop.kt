@@ -43,6 +43,10 @@ actual class TunnelConfigStore {
         val text = json.encodeToString(ListSerializer(TunnelUiState.serializer()), tunnels)
         tunnelsFile.writeText(text, Charsets.UTF_8)
     }
+
+    actual suspend fun hasData(): Boolean = withContext(Dispatchers.IO) {
+        tunnelsFile.exists() && tunnelsFile.length() > 0L
+    }
 }
 
 actual fun createTunnelConfigStore(context: Any?): TunnelConfigStore = TunnelConfigStore()

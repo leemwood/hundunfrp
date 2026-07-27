@@ -18,6 +18,11 @@ expect class TunnelConfigStore {
      * 将 [tunnels] 保存到平台持久化存储。
      */
     suspend fun save(tunnels: List<TunnelUiState>)
+
+    /**
+     * 是否已有持久化数据（用于区分真正的首次启动）。
+     */
+    suspend fun hasData(): Boolean
 }
 
 /**

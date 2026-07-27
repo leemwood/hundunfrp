@@ -38,6 +38,10 @@ actual class TunnelConfigStore(private val file: File) {
             // 写入失败时静默丢弃，避免崩溃；上层可通过日志或返回结果扩展处理。
         }
     }
+
+    actual suspend fun hasData(): Boolean {
+        return file.exists() && file.length() > 0L
+    }
 }
 
 /**

@@ -43,6 +43,10 @@ actual class SettingsStore {
         val text = json.encodeToString(AppSettings.serializer(), settings)
         settingsFile.writeText(text, Charsets.UTF_8)
     }
+
+    actual suspend fun hasData(): Boolean = withContext(Dispatchers.IO) {
+        settingsFile.exists() && settingsFile.length() > 0L
+    }
 }
 
 actual fun createSettingsStore(context: Any?): SettingsStore = SettingsStore()

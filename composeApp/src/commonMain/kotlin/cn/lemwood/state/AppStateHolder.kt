@@ -12,6 +12,8 @@ import cn.lemwood.data.SettingsStore
 import cn.lemwood.data.TunnelConfigStore
 import cn.lemwood.data.createSettingsStore
 import cn.lemwood.data.createTunnelConfigStore
+import cn.lemwood.platform.AppNotifier
+import cn.lemwood.platform.ForegroundServiceController
 import cn.lemwood.platform.FrpController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +34,16 @@ object AppStateHolder {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var initialized = false
 
+    // 平台 context（Android 为 Activity），用于惰性创建系统通知器
+    private var platformContext: Any? = null
+    private val notifier by lazy { AppNotifier(platformContext) }
+
+    /** 发送系统通知；遵守 notifications 开关，任何异常静默吞掉 */
+    private fun sendNotification(title: String, message: String, notificationId: Int = 1) {
+        if (!state.value.settings.notifications) return
+        runCatching { notifier.notify(title, message, notificationId) }
+    }
+
     // 上一次流量总量，用于计算速率
     private var lastTotalUp: Long = 0L
     private var lastTotalDown: Long = 0L
@@ -40,6 +52,7 @@ object AppStateHolder {
     fun init(context: Any? = null) {
         if (initialized) return
         initialized = true
+        platformContext = context
         settingsStore = createSettingsStore(context)
         tunnelStore = createTunnelConfigStore(context)
         scope.launch {
@@ -52,9 +65,11 @@ object AppStateHolder {
                 tunnels = loadedTunnels,
                 uiState = UIState.Idle
             )
-            // 首次启动或配置缺失时，确保默认值落盘，便于后续验证与恢复
-            if (settingsResult.isSuccess) persistSettings()
-            if (tunnelsResult.isSuccess) persistTunnels()
+            // 仅真正首次启动（尚无持久化数据）时落盘默认值；load 失败时不覆盖
+            val settingsHasData = runCatching { settingsStore?.hasData() }.getOrNull() ?: true
+            val tunnelsHasData = runCatching { tunnelStore?.hasData() }.getOrNull() ?: true
+            if (settingsResult.isSuccess && !settingsHasData) persistSettings()
+            if (tunnelsResult.isSuccess && !tunnelsHasData) persistTunnels()
         }
     }
 
@@ -225,6 +240,7 @@ object AppStateHolder {
         scope.launch(Dispatchers.IO) {
             runCatching { controller.disconnect() }
         }
+        ForegroundServiceController.onServerDisconnected()
     }
 
     fun updateTunnelStatus(id: String, status: TunnelStatus, lastError: String? = null) {
@@ -233,6 +249,15 @@ object AppStateHolder {
                 tunnels = current.tunnels.map { tunnel ->
                     if (tunnel.id == id) tunnel.copy(status = status, lastError = lastError) else tunnel
                 }
+            )
+        }
+        // 隧道进入错误状态时通知，id 取 hashCode 避免不同隧道互相覆盖
+        if (status == TunnelStatus.ERROR && !lastError.isNullOrBlank()) {
+            val tunnelName = state.value.tunnels.firstOrNull { it.id == id }?.name ?: id
+            sendNotification(
+                title = "隧道错误：$tunnelName",
+                message = lastError.take(120),
+                notificationId = id.hashCode()
             )
         }
     }
@@ -285,15 +310,18 @@ object AppStateHolder {
 
     fun setServerConnected(latencyMs: Int) {
         val settings = state.value.settings
+        val serverAddr = "${settings.serverAddr}:${settings.serverPort}"
         state.update { current ->
             current.copy(
                 serverStatus = current.serverStatus.copy(
                     connected = true,
-                    server = "${settings.serverAddr}:${settings.serverPort}",
+                    server = serverAddr,
                     latencyMs = latencyMs
                 )
             )
         }
+        sendNotification("已连接到服务器", "$serverAddr，延迟 ${latencyMs}ms")
+        ForegroundServiceController.onServerConnected(serverAddr)
     }
 
     fun setServerDisconnected() {
@@ -303,6 +331,8 @@ object AppStateHolder {
                 tunnels = current.tunnels.map { it.copy(status = TunnelStatus.OFFLINE) }
             )
         }
+        sendNotification("服务器连接已断开", "与 frp 服务器的连接已断开")
+        ForegroundServiceController.onServerDisconnected()
     }
 
     fun updateUptime(seconds: Long) {

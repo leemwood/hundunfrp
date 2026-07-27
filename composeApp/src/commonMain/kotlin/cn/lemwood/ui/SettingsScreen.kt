@@ -1,5 +1,6 @@
 package cn.lemwood.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +24,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,10 +45,12 @@ import cn.lemwood.model.AppSettings
 import cn.lemwood.model.AppState
 import cn.lemwood.model.LogLevel
 import cn.lemwood.model.ServerStatus
+import cn.lemwood.platform.BatteryOptimizer
 import cn.lemwood.platform.FrpController
 import cn.lemwood.state.AppStateHolder
 import cn.lemwood.theme.AppDimen
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -243,6 +247,10 @@ private fun GlobalBehaviorSettings(settings: AppSettings) {
         checked = settings.notifications,
         onCheckedChange = { AppStateHolder.updateSettings(settings.copy(notifications = it)) },
     )
+    if (BatteryOptimizer.isSupported) {
+        HorizontalDivider(modifier = Modifier.padding(vertical = AppDimen.CardPadding / 2))
+        BatteryOptimizationSettings()
+    }
     HorizontalDivider(modifier = Modifier.padding(vertical = AppDimen.CardPadding / 2))
     OutlinedTextField(
         value = settings.timeoutSeconds.toString(),
@@ -271,6 +279,50 @@ private fun GlobalBehaviorSettings(settings: AppSettings) {
             }
         },
     )
+}
+
+@Composable
+private fun BatteryOptimizationSettings(modifier: Modifier = Modifier) {
+    // 轮询刷新白名单状态，从系统设置返回后自动更新
+    var ignoring by remember { mutableStateOf(BatteryOptimizer.isIgnoringBatteryOptimizations()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            ignoring = BatteryOptimizer.isIgnoringBatteryOptimizations()
+            delay(1000)
+        }
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        SettingsRow(
+            label = "忽略电池优化",
+            value = if (ignoring) "已加入白名单" else "未加入白名单，后台可能被系统限制",
+            checked = ignoring,
+            onCheckedChange = { wantIgnore ->
+                // 结果由系统弹窗决定，仅切到 on 时发起请求
+                if (wantIgnore) BatteryOptimizer.requestExemption()
+            },
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { BatteryOptimizer.openOemBackgroundSettings() },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "后台运行设置",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "小米/华为/OPPO/vivo 等需手动允许后台运行",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(AppDimen.CardPadding))
+    }
 }
 
 private val themeOptions = listOf(

@@ -18,6 +18,11 @@ expect class SettingsStore {
      * 将 [settings] 保存到平台持久化存储。
      */
     suspend fun save(settings: AppSettings)
+
+    /**
+     * 是否已有持久化数据（用于区分真正的首次启动）。
+     */
+    suspend fun hasData(): Boolean
 }
 
 /**

@@ -123,11 +123,17 @@ $env:ANDROID_HOME = "E:\Android\Sdk"
 - [x] 前后端打通 — 移除全部 Mock 数据；AppStateHolder 持有 FrpController 并新增 connectServer/disconnectServer/updateTunnelStatus/updateTrafficTotals 等方法；FrpLogParser（日志事件解析）+ FrpAdminStatus（frpc admin API `/api/status` 轮询，端口 7400）回传真实隧道状态/流量/延迟；StatusScreen 流量图表与最近事件改状态驱动；SettingsScreen 新增连接/断开按钮；FrpConfigBuilder 修正为合法 frpc ini（段名=tunnel.id，含 admin 配置）；进程意外退出支持 autoReconnect 重连（最多5次）
 - [x] Android frpc 二进制捆绑 — CI Go 交叉编译 v0.70.1 进 jniLibs（arm64-v8a），详见下方踩坑记录
 - [x] GitHub Actions APK CI — push main 自动构建并上传 debug APK artifact
+- [x] 消息通知（状态栏通知）— expect/actual `AppNotifier`（`platform/AppNotifier.kt`）；`AppStateHolder.sendNotification()` 在连接成功/断开/隧道错误时触发，遵守 `settings.notifications` 开关；Android 用 NotificationCompat + 渠道 `frp_status` + POST_NOTIFICATIONS（MainActivity 启动时 SDK 33+ 请求权限），Desktop 用 SystemTray 降级方案，两端均静默降级不抛异常
+- [x] 初始化修复 — Android DataStore 漏持久化 `hasCompletedOnboarding` 导致二次启动必弹引导页，已补键；`SettingsStore`/`TunnelConfigStore` 新增 `hasData()`，`AppStateHolder.init()` 仅真正首启（store 无数据）才落盘默认值，不再每次启动重写配置
+- [x] 电池优化适配 — expect/actual `BatteryOptimizer`（`platform/BatteryOptimizer.kt`）；Android：PowerManager 白名单检测 + `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` 弹窗（Manifest 已加权限）+ 按厂商（小米/华为/OPPO/vivo/三星/魅族等）尝试自启动/后台管理 ComponentName、失败回退应用详情页；设置页「全局行为」新增「忽略电池优化」开关（1s 轮询刷新状态）和「后台运行设置」入口，仅 Android 显示
+- [x] Android 前台服务保活 — `FrpForegroundService`（渠道 `frp_service` IMPORTANCE_LOW，START_STICKY，点击回主界面）+ expect/actual `ForegroundServiceController`；`AppStateHolder` 在连接成功启动服务、断开停止；Manifest 加 FOREGROUND_SERVICE + FOREGROUND_SERVICE_DATA_SYNC，service 声明 `foregroundServiceType="dataSync"`
+- [x] Desktop 托盘与关窗行为 — `desktopMain/Tray.kt`：托盘菜单「显示主窗口/退出」，关窗隐藏到托盘（托盘不可用时直接断开退出）；所有退出路径（托盘退出/关窗/Ctrl+C hook）均 disconnect + 清理 TrayIcon（`AppNotifier.desktop.kt` companion 登记已建图标统一 remove）；headless 模式无启用隧道时提示退出，并修复 init 异步加载竞态（最多等 2s）
+- [x] 动态取色 — expect/actual `dynamicColorScheme()`（Android SDK 31+ 用 material3 dynamic*ColorScheme，其余返回 null），`AppTheme` 内部消费 `settings.dynamicColor`，签名零改动
+- [x] 引导页迁移 — Android SettingsStore `load()`：`has_completed_onboarding` 键缺失且 `server_addr` 非空时视为已完成引导（老版本升级用户不再重弹引导页）
 
 ### 未完成（按优先级）
-1. **[低] Android前台服务 / 通知**
-2. **[低] Desktop系统托盘 / CLI模式**
-3. **[低] 引导页 / 文件选择器 / 动态取色**
+1. **[低] 文件选择器（Desktop 导入导出路径手输）**
+2. **[低] Android 端编译/真机验证**（Termux 无 SDK，依赖 CI assembleDebug；前台服务/通知/电池优化/动态取色的 androidMain 代码均只过了人工复查）
 
 ---
 

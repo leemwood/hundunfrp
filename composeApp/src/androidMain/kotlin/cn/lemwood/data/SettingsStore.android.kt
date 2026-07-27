@@ -22,8 +22,9 @@ actual class SettingsStore(private val dataStore: DataStore<Preferences>) {
 
     actual suspend fun load(): AppSettings {
         return dataStore.data.map { prefs ->
+            val serverAddr = prefs[SettingsKeys.SERVER_ADDR] ?: ""
             AppSettings(
-                serverAddr = prefs[SettingsKeys.SERVER_ADDR] ?: "",
+                serverAddr = serverAddr,
                 serverPort = prefs[SettingsKeys.SERVER_PORT] ?: 7000,
                 serverToken = prefs[SettingsKeys.SERVER_TOKEN] ?: "",
                 autoStart = prefs[SettingsKeys.AUTO_START] ?: false,
@@ -32,7 +33,9 @@ actual class SettingsStore(private val dataStore: DataStore<Preferences>) {
                 timeoutSeconds = prefs[SettingsKeys.TIMEOUT_SECONDS] ?: 30,
                 logLevel = prefs[SettingsKeys.LOG_LEVEL]?.let { runCatching { LogLevel.valueOf(it) }.getOrNull() } ?: LogLevel.INFO,
                 theme = prefs[SettingsKeys.THEME] ?: "system",
-                dynamicColor = prefs[SettingsKeys.DYNAMIC_COLOR] ?: false
+                dynamicColor = prefs[SettingsKeys.DYNAMIC_COLOR] ?: false,
+                // 老用户迁移：键缺失时已配置过服务器地址即视为已完成引导
+                hasCompletedOnboarding = prefs[SettingsKeys.HAS_COMPLETED_ONBOARDING] ?: serverAddr.isNotEmpty()
             )
         }.first()
     }
@@ -49,7 +52,12 @@ actual class SettingsStore(private val dataStore: DataStore<Preferences>) {
             prefs[SettingsKeys.LOG_LEVEL] = settings.logLevel.name
             prefs[SettingsKeys.THEME] = settings.theme
             prefs[SettingsKeys.DYNAMIC_COLOR] = settings.dynamicColor
+            prefs[SettingsKeys.HAS_COMPLETED_ONBOARDING] = settings.hasCompletedOnboarding
         }
+    }
+
+    actual suspend fun hasData(): Boolean {
+        return dataStore.data.first().asMap().isNotEmpty()
     }
 
     private object SettingsKeys {
@@ -63,6 +71,7 @@ actual class SettingsStore(private val dataStore: DataStore<Preferences>) {
         val LOG_LEVEL = stringPreferencesKey("log_level")
         val THEME = stringPreferencesKey("theme")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        val HAS_COMPLETED_ONBOARDING = booleanPreferencesKey("has_completed_onboarding")
     }
 }
 

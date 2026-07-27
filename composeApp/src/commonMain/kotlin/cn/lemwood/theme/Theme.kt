@@ -5,6 +5,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import cn.lemwood.model.AppSettings
+import cn.lemwood.platform.dynamicColorScheme
+import cn.lemwood.state.AppStateHolder
+import kotlinx.coroutines.flow.map
 
 private val LightColorScheme = lightColorScheme(
     primary = md_theme_light_primary,
@@ -57,7 +63,10 @@ fun AppTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    // 开启动态取色且平台支持时使用系统 ColorScheme，否则走固定主题
+    val settings by AppStateHolder.state.map { it.settings }.collectAsState(AppSettings())
+    val dynamicScheme = if (settings.dynamicColor) dynamicColorScheme(darkTheme) else null
+    val colorScheme = dynamicScheme ?: if (darkTheme) DarkColorScheme else LightColorScheme
 
     MaterialTheme(
         colorScheme = colorScheme,
