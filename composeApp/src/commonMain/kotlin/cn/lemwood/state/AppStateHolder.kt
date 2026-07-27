@@ -72,8 +72,8 @@ object AppStateHolder {
             current.copy(tunnels = filtered + tunnel)
         }
         persistTunnels()
-        // 已连接时重启 frpc 使新配置生效
-        if (state.value.serverStatus.connected) connectServer()
+        // 已连接时重启 frpc 使新配置生效（防抖合并连续变更）
+        if (state.value.serverStatus.connected) scheduleReconnect()
     }
 
     fun updateTunnel(tunnel: TunnelUiState) {
@@ -83,7 +83,7 @@ object AppStateHolder {
             )
         }
         persistTunnels()
-        if (state.value.serverStatus.connected) connectServer()
+        if (state.value.serverStatus.connected) scheduleReconnect()
     }
 
     fun deleteTunnel(id: String) {
@@ -91,7 +91,7 @@ object AppStateHolder {
             current.copy(tunnels = current.tunnels.filter { it.id != id })
         }
         persistTunnels()
-        if (state.value.serverStatus.connected) connectServer()
+        if (state.value.serverStatus.connected) scheduleReconnect()
     }
 
     fun toggleTunnel(id: String) {
@@ -113,9 +113,24 @@ object AppStateHolder {
         // 有启用隧道则（重）连接，全部停用则断开
         val current = state.value
         if (current.tunnels.any { it.enabled }) {
-            if (current.settings.serverAddr.isNotBlank()) connectServer()
+            if (current.settings.serverAddr.isNotBlank()) scheduleReconnect()
         } else {
+            reconnectJob?.cancel()
             disconnectServer()
+        }
+    }
+
+    private var reconnectJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * 防抖重启 frpc：短时间内的多次配置变更（新增/编辑/开关隧道）合并为一次重启，
+     * 避免每次操作都掉线重连。
+     */
+    private fun scheduleReconnect() {
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            kotlinx.coroutines.delay(800)
+            connectServer()
         }
     }
 
