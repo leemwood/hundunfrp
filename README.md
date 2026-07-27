@@ -21,7 +21,11 @@
 
 ### 下载
 
-在 [Actions](https://github.com/leemwood/hundunfrp/actions/workflows/android-apk.yml) 页面最新运行的 Artifacts 中下载 `hundunfrp-debug-apk`。
+在 [Actions](https://github.com/leemwood/hundunfrp/actions/workflows/android-apk.yml) 页面最新运行的 Artifacts 中下载：
+
+- `hundunfrp-debug-apk` — Android 调试包（arm64，内置 frpc）
+- `hundunfrp-desktop-jar` — 桌面端 uber JAR（`java -jar` 运行，需自备 frpc）
+- `hundunfrp-windows-exe` — Windows 安装包（NSIS，需自备 frpc）
 
 ### 从源码构建
 

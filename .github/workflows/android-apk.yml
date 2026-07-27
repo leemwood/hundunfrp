@@ -1,4 +1,4 @@
-name: Android APK
+name: Build
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  apk:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,8 +29,8 @@ jobs:
         with:
           go-version: stable
 
+      # frpc 交叉编译为 c-shared JNI 库（arm64-v8a），注入到 jniLibs 后打包
       - name: Build frpc JNI library
-        # ubuntu-latest 镜像自带 NDK（$ANDROID_HOME/ndk/*），脚本自动定位版本最大者
         run: sh scripts/build-frpc-android.sh
 
       - name: Build Debug APK
@@ -41,4 +41,58 @@ jobs:
         with:
           name: hundunfrp-debug-apk
           path: composeApp/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact-name: hundunfrp-desktop-jar
+            artifact-path: composeApp/build/compose/jars/*.jar
+          - os: windows-latest
+            artifact-name: hundunfrp-windows-exe
+            artifact-path: composeApp/build/compose/binaries/main/exe/*.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # 同一模块含 androidTarget，配置阶段需要 Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Make gradlew executable (Linux)
+        if: runner.os == 'Linux'
+        run: chmod +x gradlew
+
+      # NSIS 打包需要 makensis，GitHub windows 镜像未预装
+      - name: Install NSIS (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            choco install nsis -y
+          }
+
+      - name: Build uber JAR (Linux)
+        if: runner.os == 'Linux'
+        run: ./gradlew :composeApp:packageUberJarForCurrentOS --stacktrace
+
+      - name: Build EXE (Windows)
+        if: runner.os == 'Windows'
+        run: ./gradlew.bat :composeApp:packageExe --stacktrace
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
           if-no-files-found: error
