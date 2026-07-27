@@ -47,6 +47,9 @@ actual class FrpController {
     @Volatile
     private var pollFailures = 0
 
+    @Volatile
+    private var lastPollError: String? = null
+
     private val context: Context?
         get() = AndroidFrpContext.appContext
 
@@ -92,8 +95,9 @@ actual class FrpController {
             logFile.writeText("")
 
             // log.* 必须落在 [common] 段：插到第一个隧道段之前，无隧道则追加到末尾
+            // 注意：frp legacy ini 用下划线键（log_file/log_way），圆点键 log.to 是 toml 语法，ini 里会被忽略
             val baseConfig = FrpConfigBuilder.buildConfig(state.settings, state.tunnels)
-            val logConfig = "log.to = ${logFile.absolutePath}\nlog.level = info\n"
+            val logConfig = "log_way = file\nlog_file = ${logFile.absolutePath}\nlog_level = info\n"
             val config = when (val idx = baseConfig.indexOf("\n[")) {
                 -1 -> baseConfig + logConfig
                 else -> baseConfig.substring(0, idx + 1) + logConfig + baseConfig.substring(idx + 1)
@@ -352,6 +356,16 @@ actual class FrpController {
                     pollFailures = 0
                 } else {
                     pollFailures++
+                    // 首次失败时记录原因，便于诊断（cleartext 拦截/端口未起等）
+                    if (pollFailures == 1) {
+                        AppStateHolder.addLog(
+                            LogEntry(
+                                level = LogLevel.WARN,
+                                message = "admin API 轮询失败: $lastPollError",
+                                timestamp = System.currentTimeMillis(),
+                            )
+                        )
+                    }
                     if (pollFailures >= MAX_POLL_FAILURES && !manualStop) {
                         pollFailures = 0
                         handleUnexpectedExit()
@@ -394,9 +408,11 @@ actual class FrpController {
             if (conn.responseCode == HttpURLConnection.HTTP_OK) {
                 conn.inputStream.bufferedReader().use { it.readText() }
             } else {
+                lastPollError = "HTTP ${conn.responseCode}"
                 null
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            lastPollError = e.message ?: e.javaClass.simpleName
             null
         } finally {
             conn?.disconnect()

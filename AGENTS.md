@@ -137,8 +137,10 @@ $env:ANDROID_HOME = "E:\Android\Sdk"
 - **方案**:`scripts/build-frpc-android.sh` 用 Go 交叉编译 frp v0.70.1 → `composeApp/src/androidMain/jniLibs/arm64-v8a/libfrpc.so`,CI 在 assembleDebug 前执行；产物已 gitignore，不入库。
 - **仅 arm64-v8a**:Go 的 android 目标只有 arm64 支持纯 Go 内部链接，arm/amd64 报 "requires external (cgo) linking"（需 NDK)，不要再加其他 ABI。
 - **web embed**:frp 源码 `web/frpc/embed.go` go:embed 的 dist 不在 git 里，构建前必须造占位 `web/frpc/dist/index.html`，否则编译失败（App 只用 admin API，不需要 dashboard)。
-- **useLegacyPackaging**:minSdk 24 + AGP 8.6 默认 extractNativeLibs=false,so 不解压到 nativeLibraryDir、无法 exec;`build.gradle.kts` 已开 `packaging.jniLibs.useLegacyPackaging = true`，勿关。
-- **加载路径**:`extractFrpcBinary` 优先从 `nativeLibraryDir/libfrpc.so` 复制到 `filesDir/frp/frpc` 再执行。
+- **useLegacyPackaging**：保持 `false`（JNI 方案 `System.loadLibrary` 直接从 APK 加载 so，无需解压；旧的 exec 方案才需要解压到磁盘）。
+- **加载路径**：frpc 由 `FrpcNative`（`System.loadLibrary("frpc_jni")`）进程内加载；targetSdk 29+ SELinux 禁止 exec 应用数据目录文件，**不要**改回复制二进制 exec 方案。
+- **legacy ini 键名**：frp v0.70 ini 走 legacy 解析，日志键是 `log_file`/`log_way = file`（下划线），圆点键 `log.to` 是 toml 语法，写在 ini 里会被静默忽略（表现为 frpc.log 一直为空）。
+- **cleartext loopback**:targetSdk 28+ 默认禁止明文 HTTP，**包括 127.0.0.1**；admin API 轮询（http://127.0.0.1:7400）依赖 `androidMain/res/xml/network_security_config.xml` 放开 loopback，删除会导致轮询全挂、反复误触发重连。
 
 ---
 
