@@ -13,7 +13,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClearAll
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,6 +30,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import cn.lemwood.components.EmptyState
 import cn.lemwood.components.FilterChips
@@ -49,7 +53,9 @@ fun LogScreen(
 
     var selectedLevels by remember { mutableStateOf(setOf("ALL")) }
     var autoScroll by remember { mutableStateOf(true) }
+    var copied by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val clipboardManager = LocalClipboardManager.current
 
     val filteredLogs = remember(logs, selectedLevels) {
         if ("ALL" in selectedLevels) logs else {
@@ -63,10 +69,39 @@ fun LogScreen(
         }
     }
 
+    // 复制成功后将图标短暂变为对勾
+    LaunchedEffect(copied) {
+        if (copied) {
+            kotlinx.coroutines.delay(1500)
+            copied = false
+        }
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("日志") },
             actions = {
+                IconButton(
+                    onClick = {
+                        if (filteredLogs.isNotEmpty()) {
+                            val text = filteredLogs.joinToString("\n") { entry ->
+                                "${formatTime(entry.timestamp)} [${entry.level.name}] ${entry.message}"
+                            }
+                            clipboardManager.setText(AnnotatedString(text))
+                            copied = true
+                        }
+                    },
+                ) {
+                    Icon(
+                        imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                        contentDescription = "复制日志",
+                        tint = if (copied) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
                 IconButton(onClick = { AppStateHolder.clearLogs() }) {
                     Icon(
                         imageVector = Icons.Default.ClearAll,
