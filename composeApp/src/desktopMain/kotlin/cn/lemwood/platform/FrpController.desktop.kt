@@ -242,16 +242,18 @@ actual class FrpController {
                         var sumUp = 0L
                         var sumDown = 0L
                         for (proxy in proxies) {
-                            AppStateHolder.updateTunnelStatus(
-                                proxy.name,
-                                if (proxy.online) TunnelStatus.ONLINE else TunnelStatus.OFFLINE,
-                            )
-                            // frp 语义：out = 上行到服务端，in = 下行
-                            AppStateHolder.updateTunnelTraffic(proxy.name, proxy.trafficOut, proxy.trafficIn)
+                            val (tunnelStatus, lastError) = proxy.toTunnelStatus()
+                            AppStateHolder.updateTunnelStatus(proxy.name, tunnelStatus, lastError)
+                            // v0.70 起 /api/status 不再返回流量字段，有值才更新；frp 语义：out = 上行到服务端，in = 下行
+                            if (proxy.trafficIn > 0 || proxy.trafficOut > 0) {
+                                AppStateHolder.updateTunnelTraffic(proxy.name, proxy.trafficOut, proxy.trafficIn)
+                            }
                             sumUp += proxy.trafficOut
                             sumDown += proxy.trafficIn
                         }
-                        AppStateHolder.updateTrafficTotals(sumUp, sumDown)
+                        if (sumUp > 0 || sumDown > 0) {
+                            AppStateHolder.updateTrafficTotals(sumUp, sumDown)
+                        }
                         AppStateHolder.updateUptime((System.currentTimeMillis() - processStartTime) / 1000)
                     }
                 } catch (_: Exception) {

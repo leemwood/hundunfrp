@@ -142,6 +142,11 @@ $env:ANDROID_HOME = "E:\Android\Sdk"
 - **legacy ini 键名**：frp v0.70 ini 走 legacy 解析，日志键是 `log_file`/`log_way = file`（下划线），圆点键 `log.to` 是 toml 语法，写在 ini 里会被静默忽略（表现为 frpc.log 一直为空）。
 - **cleartext loopback**:targetSdk 28+ 默认禁止明文 HTTP，**包括 127.0.0.1**；admin API 轮询（http://127.0.0.1:7400）依赖 `androidMain/res/xml/network_security_config.xml` 放开 loopback，删除会导致轮询全挂、反复误触发重连。
 
+### frp v0.70 API 变更（2026-07-27 踩坑）
+- `/api/status` 的代理 status 取值改为 `new / wait start / start error / running / check failed / closed`（旧版是 `online`/`offline`），按 `online` 判断会把运行中的隧道误判离线，与日志事件互相拉扯造成状态抖动。映射逻辑统一在 `FrpAdminStatus.toTunnelStatus()`。
+- `/api/status` **不再返回流量字段**（today_traffic_in/out 已移除，流量只在 frps 端 prometheus），两端控制器对 0 值做了跳过处理，v0.70 下流量统计不可用属预期。
+- `FrpLogParser` 的 ProxyClosed 只匹配 `proxy closed`，不能用裸 `closed`（工作连接关闭日志也含该词，会造成状态抖动）。
+
 ---
 
 ## 开发规范

@@ -29,7 +29,7 @@ object FrpLogParser {
                 FrpLogEvent.ProxyStarted(extractProxyName(line))
             lower.contains("start error") ->
                 FrpLogEvent.ProxyStartError(extractProxyName(line), line)
-            lower.contains("proxy closed") || lower.contains("closed") ->
+            lower.contains("proxy closed") ->
                 FrpLogEvent.ProxyClosed(extractProxyName(line))
             else -> FrpLogEvent.Plain(line)
         }
